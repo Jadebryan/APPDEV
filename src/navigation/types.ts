@@ -4,9 +4,24 @@ export type RootStackParamList = {
   MainTabs: undefined;
 };
 
-export type MainTabParamList = {
-  Feed: undefined;
+export type FeedStackParamList = {
+  FeedHome: undefined;
   CreatePost: undefined;
+  Notifications: undefined;
+  StoryCapture: undefined;
+   Comments: {
+    postId: string;
+    username: string;
+    caption: string;
+    image: string;
+  };
+};
+
+export type MainTabParamList = {
+  FeedStack: undefined;
+  Reels: undefined;
+  Search: undefined;
+  Chats: undefined;
   Profile: undefined;
 };
 

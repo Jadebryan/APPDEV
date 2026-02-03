@@ -163,7 +163,8 @@ export const mockDataService = {
   likePost: async (postId: string): Promise<Post> => {
     await new Promise(resolve => setTimeout(resolve, 200));
     
-    if (!currentMockUser) {
+    const user = currentMockUser;
+    if (!user) {
       throw new Error('Not authenticated');
     }
     
@@ -172,12 +173,12 @@ export const mockDataService = {
       throw new Error('Post not found');
     }
     
-    const isLiked = post.likes.includes(currentMockUser._id);
+    const isLiked = post.likes.includes(user._id);
     
     if (isLiked) {
-      post.likes = post.likes.filter(id => id !== currentMockUser._id);
+      post.likes = post.likes.filter(id => id !== user._id);
     } else {
-      post.likes.push(currentMockUser._id);
+      post.likes.push(user._id);
     }
     
     return {

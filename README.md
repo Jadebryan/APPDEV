@@ -1,89 +1,35 @@
-# Run Barbie🎀
+# Run Barbie 🎀 — Project
 
-A React Native mobile application built with Expo and TypeScript, designed for hikers, runners, and outdoor athletes to share their activities and connect with like-minded individuals.
+This repository contains the **Run Barbie** app and its backend server.
 
-## Features
+## Project structure
 
-- 📸 Instagram-style feed with activity posts
-- 🏃 Activity tracking (run, hike, cycle)
-- 👤 User profiles with posts grid
-- ❤️ Like and follow functionality
-- 📷 Image upload from camera or gallery
-- 🔐 Authentication system
+```
+.
+├── RunBarbie/     ← React Native (Expo) app — all client code
+└── server/        ← Node.js backend (API)
+```
 
-## Tech Stack
+## Quick start
 
-- **Frontend**: React Native, Expo, TypeScript
-- **Backend**: Node.js, Express, MongoDB
-- **Navigation**: React Navigation
-- **State Management**: React Hooks
+### Run the app (RunBarbie)
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js (v16 or higher)
-- npm or yarn
-- Expo CLI (`npm install -g expo-cli`)
-- MongoDB installed and running locally, or MongoDB Atlas account
-
-### Installation
-
-1. Install dependencies:
 ```bash
+cd RunBarbie
 npm install
+npx expo start
 ```
 
-2. Set up environment variables:
-Create a `.env` file in the root directory:
-```
-MONGODB_URI=mongodb://localhost:27017/runbarbie
-JWT_SECRET=your-secret-key-here
-PORT=3000
-```
+### Run the server (backend)
 
-3. Start the backend server:
 ```bash
-npm run server
+cd server
+npm install
+# Set up .env from .env.example (MONGODB_URI, JWT_SECRET, PORT)
+node index.js
 ```
 
-4. Start the Expo development server:
-```bash
-npm start
-```
+## Documentation
 
-5. Run on your device:
-   - Scan the QR code with Expo Go app (iOS/Android)
-   - Or press `i` for iOS simulator / `a` for Android emulator
-
-## Project Structure
-
-```
-run-barbie/
-├── src/
-│   ├── components/     # Reusable components
-│   ├── screens/        # Screen components
-│   ├── navigation/     # Navigation configuration
-│   ├── types/          # TypeScript interfaces
-│   ├── services/       # API services
-│   └── utils/          # Utility functions
-├── server/             # Backend server
-│   ├── models/         # MongoDB models
-│   ├── routes/          # API routes
-│   └── middleware/     # Express middleware
-└── assets/             # Images and static assets
-```
-
-## API Endpoints
-
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - User login
-- `GET /api/posts` - Get all posts
-- `POST /api/posts` - Create new post
-- `GET /api/users/:id` - Get user profile
-- `POST /api/posts/:id/like` - Like/unlike a post
-- `POST /api/users/:id/follow` - Follow/unfollow user
-
-## License
-
-This project is created for educational purposes.
+- **App setup & usage:** see `RunBarbie/README.md`
+- **Server:** configure via `.env` at project root (copy from `.env.example`)

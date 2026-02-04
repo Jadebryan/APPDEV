@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AuthResponse, Post, User, CreatePostData } from '../types';
+import { AuthResponse, Post, User, CreatePostData, Conversation, Message } from '../types';
 import { storage } from '../utils/storage';
 import { mockDataService } from './mockData';
 
@@ -69,6 +69,21 @@ const mockUserService = {
   },
 };
 
+export interface SearchTag {
+  tag: string;
+  postCount: number;
+}
+
+const mockSearchService = {
+  searchUsers: async (query: string): Promise<User[]> => mockDataService.searchUsers(query),
+  searchTags: async (query: string): Promise<SearchTag[]> => mockDataService.searchTags(query),
+  getTrendingTags: async (): Promise<SearchTag[]> => mockDataService.getTrendingTags(),
+  getRecentSearches: (): string[] => mockDataService.getRecentSearches(),
+  addRecentSearch: (term: string) => mockDataService.addRecentSearch(term),
+  clearRecentSearches: () => mockDataService.clearRecentSearches(),
+  getSuggestedUsers: async (): Promise<User[]> => mockDataService.getSuggestedUsers(),
+};
+
 // Real API services
 const realAuthService = {
   register: async (email: string, password: string, username: string): Promise<AuthResponse> => {
@@ -116,9 +131,40 @@ const realUserService = {
   },
 };
 
+// Real search (stub - use mock for now)
+const realSearchService = {
+  searchUsers: async (_q: string): Promise<User[]> => [],
+  searchTags: async (_q: string): Promise<SearchTag[]> => [],
+  getTrendingTags: async (): Promise<SearchTag[]> => [],
+  getRecentSearches: (): string[] => [],
+  addRecentSearch: (_term: string) => {},
+  clearRecentSearches: () => {},
+  getSuggestedUsers: async (): Promise<User[]> => [],
+};
+
+const mockChatService = {
+  getConversations: async (): Promise<Conversation[]> => mockDataService.getConversations(),
+  getMessages: async (conversationId: string): Promise<Message[]> => mockDataService.getMessages(conversationId),
+  sendMessage: async (conversationId: string, text: string): Promise<Message> => mockDataService.sendMessage(conversationId, text),
+  markConversationRead: async (conversationId: string): Promise<void> => mockDataService.markConversationRead(conversationId),
+  getActiveUsers: async (): Promise<User[]> => mockDataService.getActiveUsers(),
+  getOrCreateConversation: async (otherUserId: string): Promise<Conversation> => mockDataService.getOrCreateConversation(otherUserId),
+};
+
+const realChatService = {
+  getConversations: async (): Promise<Conversation[]> => [],
+  getMessages: async (_id: string): Promise<Message[]> => [],
+  sendMessage: async (_id: string, _text: string): Promise<Message> => ({ _id: '', conversationId: '', senderId: '', text: '', createdAt: '', read: false }),
+  markConversationRead: async (_id: string): Promise<void> => {},
+  getActiveUsers: async (): Promise<User[]> => [],
+  getOrCreateConversation: async (_id: string): Promise<Conversation> => ({ _id: '', participant: {} as User, lastMessage: { text: '', createdAt: '', senderId: '' }, unreadCount: 0, updatedAt: '' }),
+};
+
 // Export services based on USE_MOCK_DATA flag
 export const authService = USE_MOCK_DATA ? mockAuthService : realAuthService;
 export const postService = USE_MOCK_DATA ? mockPostService : realPostService;
 export const userService = USE_MOCK_DATA ? mockUserService : realUserService;
+export const searchService = USE_MOCK_DATA ? mockSearchService : realSearchService;
+export const chatService = USE_MOCK_DATA ? mockChatService : realChatService;
 
 export default api;

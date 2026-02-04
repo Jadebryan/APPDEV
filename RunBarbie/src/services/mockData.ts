@@ -1,4 +1,4 @@
-import { User, Post, ActivityType } from '../types';
+import { User, Post, Reel, ActivityType, Message, Conversation } from '../types';
 
 // Mock users
 export const mockUsers: User[] = [
@@ -73,6 +73,146 @@ export const mockPosts: Post[] = [
     createdAt: new Date(Date.now() - 10800000).toISOString(),
   },
 ];
+
+// Sample video URLs for reels (public test videos)
+const SAMPLE_VIDEOS = [
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+  'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+];
+
+// Mock reels
+export const mockReels: Reel[] = [
+  {
+    _id: 'r1',
+    userId: '1',
+    user: mockUsers[0],
+    videoUri: SAMPLE_VIDEOS[0],
+    caption: 'Morning trail run 🌅 Feeling strong today!',
+    activityType: 'run',
+    likes: ['2', '3'],
+    commentCount: 5,
+    createdAt: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    _id: 'r2',
+    userId: '2',
+    user: mockUsers[1],
+    videoUri: SAMPLE_VIDEOS[1],
+    caption: 'Summit views 🏔️ Worth every step',
+    activityType: 'hike',
+    likes: ['1'],
+    commentCount: 2,
+    createdAt: new Date(Date.now() - 7200000).toISOString(),
+  },
+  {
+    _id: 'r3',
+    userId: '3',
+    user: mockUsers[2],
+    videoUri: SAMPLE_VIDEOS[2],
+    caption: 'Sunday long ride 🚴',
+    activityType: 'cycle',
+    likes: ['1', '2'],
+    commentCount: 8,
+    createdAt: new Date(Date.now() - 10800000).toISOString(),
+  },
+  {
+    _id: 'r4',
+    userId: '1',
+    user: mockUsers[0],
+    videoUri: SAMPLE_VIDEOS[3],
+    caption: 'Easy recovery run 🩵',
+    activityType: 'run',
+    likes: [],
+    commentCount: 0,
+    createdAt: new Date(Date.now() - 14400000).toISOString(),
+  },
+  {
+    _id: 'r5',
+    userId: '2',
+    user: mockUsers[1],
+    videoUri: SAMPLE_VIDEOS[4],
+    caption: 'Chasing PRs 💪',
+    activityType: 'run',
+    likes: ['3'],
+    commentCount: 3,
+    createdAt: new Date(Date.now() - 18000000).toISOString(),
+  },
+];
+
+// Mock tags (hashtags with post counts) for search
+const MOCK_TAGS: { tag: string; postCount: number }[] = [
+  { tag: 'running', postCount: 1240 },
+  { tag: 'trailrun', postCount: 892 },
+  { tag: 'marathon', postCount: 756 },
+  { tag: 'hiking', postCount: 634 },
+  { tag: 'cycling', postCount: 521 },
+  { tag: 'runbarbie', postCount: 312 },
+  { tag: 'morningrun', postCount: 289 },
+  { tag: 'fitness', postCount: 445 },
+  { tag: 'outdoors', postCount: 398 },
+  { tag: 'recovery', postCount: 156 },
+];
+
+// Recent searches (in-memory)
+let recentSearches: string[] = [];
+
+// Mock conversations: userId1 < userId2 for consistent id; unread per user
+interface ConversationData {
+  _id: string;
+  userId1: string;
+  userId2: string;
+  lastMessage: { text: string; createdAt: string; senderId: string };
+  unreadCount1: number;
+  unreadCount2: number;
+  updatedAt: string;
+}
+const mockConversationsData: ConversationData[] = [
+  {
+    _id: 'conv_1_2',
+    userId1: '1',
+    userId2: '2',
+    lastMessage: { text: 'Down for a long run this weekend?', createdAt: new Date(Date.now() - 120000).toISOString(), senderId: '2' },
+    unreadCount1: 1,
+    unreadCount2: 0,
+    updatedAt: new Date(Date.now() - 120000).toISOString(),
+  },
+  {
+    _id: 'conv_1_3',
+    userId1: '1',
+    userId2: '3',
+    lastMessage: { text: 'That trail was amazing 🏔️', createdAt: new Date(Date.now() - 3600000).toISOString(), senderId: '1' },
+    unreadCount1: 0,
+    unreadCount2: 0,
+    updatedAt: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    _id: 'conv_2_3',
+    userId1: '2',
+    userId2: '3',
+    lastMessage: { text: 'See you at the track!', createdAt: new Date(Date.now() - 7200000).toISOString(), senderId: '3' },
+    unreadCount1: 0,
+    unreadCount2: 1,
+    updatedAt: new Date(Date.now() - 7200000).toISOString(),
+  },
+];
+const mockMessagesByConv: Record<string, Message[]> = {
+  conv_1_2: [
+    { _id: 'm1', conversationId: 'conv_1_2', senderId: '1', text: 'Hey! Great run today', createdAt: new Date(Date.now() - 86400000).toISOString(), read: true },
+    { _id: 'm2', conversationId: 'conv_1_2', senderId: '2', text: 'Thanks! Same to you 💪', createdAt: new Date(Date.now() - 86000000).toISOString(), read: true },
+    { _id: 'm3', conversationId: 'conv_1_2', senderId: '2', text: 'Down for a long run this weekend?', createdAt: new Date(Date.now() - 120000).toISOString(), read: false },
+  ],
+  conv_1_3: [
+    { _id: 'm4', conversationId: 'conv_1_3', senderId: '3', text: 'Saw your hike post!', createdAt: new Date(Date.now() - 7200000).toISOString(), read: true },
+    { _id: 'm5', conversationId: 'conv_1_3', senderId: '1', text: 'That trail was amazing 🏔️', createdAt: new Date(Date.now() - 3600000).toISOString(), read: true },
+  ],
+  conv_2_3: [
+    { _id: 'm6', conversationId: 'conv_2_3', senderId: '2', text: 'Morning run tomorrow?', createdAt: new Date(Date.now() - 86400000).toISOString(), read: true },
+    { _id: 'm7', conversationId: 'conv_2_3', senderId: '3', text: 'See you at the track!', createdAt: new Date(Date.now() - 7200000).toISOString(), read: false },
+  ],
+};
 
 // Mock current user (will be set on login)
 let currentMockUser: User | null = null;
@@ -236,5 +376,192 @@ export const mockDataService = {
   
   setCurrentUser: (user: User | null) => {
     currentMockUser = user;
+  },
+
+  // Reels
+  getReels: async (): Promise<Reel[]> => {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    return mockReels.map(reel => ({
+      ...reel,
+      user: mockUsers.find(u => u._id === reel.userId) || mockUsers[0],
+    }));
+  },
+
+  likeReel: async (reelId: string): Promise<Reel> => {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const user = currentMockUser;
+    if (!user) throw new Error('Not authenticated');
+    const reel = mockReels.find(r => r._id === reelId);
+    if (!reel) throw new Error('Reel not found');
+    const isLiked = reel.likes.includes(user._id);
+    if (isLiked) {
+      reel.likes = reel.likes.filter(id => id !== user._id);
+    } else {
+      reel.likes.push(user._id);
+    }
+    return {
+      ...reel,
+      user: mockUsers.find(u => u._id === reel.userId) || mockUsers[0],
+    };
+  },
+
+  // Search
+  searchUsers: async (query: string): Promise<User[]> => {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return mockUsers.filter(
+      u =>
+        u.username.toLowerCase().includes(q) ||
+        (u.email && u.email.toLowerCase().includes(q))
+    );
+  },
+
+  searchTags: async (query: string): Promise<{ tag: string; postCount: number }[]> => {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return MOCK_TAGS.filter(t => t.tag.toLowerCase().includes(q));
+  },
+
+  getTrendingTags: async (): Promise<{ tag: string; postCount: number }[]> => {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    return [...MOCK_TAGS].sort((a, b) => b.postCount - a.postCount);
+  },
+
+  getRecentSearches: (): string[] => recentSearches,
+
+  addRecentSearch: (term: string) => {
+    const t = term.trim();
+    if (!t) return;
+    recentSearches = [t, ...recentSearches.filter(s => s.toLowerCase() !== t.toLowerCase())].slice(0, 10);
+  },
+
+  clearRecentSearches: () => {
+    recentSearches = [];
+  },
+
+  getSuggestedUsers: async (): Promise<User[]> => {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    if (!currentMockUser) return mockUsers.slice(0, 5);
+    return mockUsers
+      .filter(u => u._id !== currentMockUser!._id)
+      .slice(0, 5);
+  },
+
+  // Chats
+  getActiveUsers: async (): Promise<User[]> => {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    if (!currentMockUser) return [];
+    return mockUsers
+      .filter(u => u._id !== currentMockUser!._id)
+      .slice(0, 10);
+  },
+
+  getOrCreateConversation: async (otherUserId: string): Promise<Conversation> => {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    if (!currentMockUser) throw new Error('Not authenticated');
+    const me = currentMockUser._id;
+    const id1 = me < otherUserId ? me : otherUserId;
+    const id2 = me < otherUserId ? otherUserId : me;
+    const convId = `conv_${id1}_${id2}`;
+    let conv = mockConversationsData.find(c => c._id === convId);
+    if (conv) {
+      const participantId = conv.userId1 === me ? conv.userId2 : conv.userId1;
+      const participant = mockUsers.find(u => u._id === participantId);
+      const unreadCount = conv.userId1 === me ? conv.unreadCount1 : conv.unreadCount2;
+      if (!participant) throw new Error('User not found');
+      return { _id: conv._id, participant, lastMessage: conv.lastMessage, unreadCount, updatedAt: conv.updatedAt };
+    }
+    const other = mockUsers.find(u => u._id === otherUserId);
+    if (!other) throw new Error('User not found');
+    const newConv: ConversationData = {
+      _id: convId,
+      userId1: id1,
+      userId2: id2,
+      lastMessage: { text: '', createdAt: new Date().toISOString(), senderId: '' },
+      unreadCount1: 0,
+      unreadCount2: 0,
+      updatedAt: new Date().toISOString(),
+    };
+    mockConversationsData.push(newConv);
+    mockMessagesByConv[convId] = [];
+    return {
+      _id: convId,
+      participant: other,
+      lastMessage: newConv.lastMessage,
+      unreadCount: 0,
+      updatedAt: newConv.updatedAt,
+    };
+  },
+
+  getConversations: async (): Promise<Conversation[]> => {
+    await new Promise(resolve => setTimeout(resolve, 250));
+    if (!currentMockUser) return [];
+    const me = currentMockUser._id;
+    return mockConversationsData
+      .filter(c => c.userId1 === me || c.userId2 === me)
+      .map(c => {
+        const participantId = c.userId1 === me ? c.userId2 : c.userId1;
+        const participant = mockUsers.find(u => u._id === participantId);
+        const unreadCount = c.userId1 === me ? c.unreadCount1 : c.unreadCount2;
+        if (!participant) return null;
+        return {
+          _id: c._id,
+          participant,
+          lastMessage: c.lastMessage,
+          unreadCount,
+          updatedAt: c.updatedAt,
+        };
+      })
+      .filter((c): c is Conversation => c !== null)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  },
+
+  getMessages: async (conversationId: string): Promise<Message[]> => {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const list = mockMessagesByConv[conversationId] || [];
+    return [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  },
+
+  sendMessage: async (conversationId: string, text: string): Promise<Message> => {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    if (!currentMockUser) throw new Error('Not authenticated');
+    const list = mockMessagesByConv[conversationId] || [];
+    const conv = mockConversationsData.find(c => c._id === conversationId);
+    const newMsg: Message = {
+      _id: `m_${Date.now()}`,
+      conversationId,
+      senderId: currentMockUser._id,
+      text: text.trim(),
+      createdAt: new Date().toISOString(),
+      read: false,
+    };
+    list.push(newMsg);
+    mockMessagesByConv[conversationId] = list;
+    if (conv) {
+      conv.lastMessage = { text: newMsg.text, createdAt: newMsg.createdAt, senderId: currentMockUser._id };
+      conv.updatedAt = newMsg.createdAt;
+      const me = currentMockUser._id;
+      if (conv.userId1 === me) {
+        conv.unreadCount1 = 0;
+        conv.unreadCount2 += 1;
+      } else {
+        conv.unreadCount2 = 0;
+        conv.unreadCount1 += 1;
+      }
+    }
+    return newMsg;
+  },
+
+  markConversationRead: async (conversationId: string): Promise<void> => {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const conv = mockConversationsData.find(c => c._id === conversationId);
+    if (!currentMockUser || !conv) return;
+    const me = currentMockUser._id;
+    if (conv.userId1 === me) conv.unreadCount1 = 0;
+    else conv.unreadCount2 = 0;
+    const list = mockMessagesByConv[conversationId] || [];
+    list.forEach(m => { m.read = true; });
   },
 };

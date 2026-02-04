@@ -16,12 +16,14 @@ import ReelsScreen from '../screens/ReelsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import SearchScreen from '../screens/SearchScreen';
 import ChatsScreen from '../screens/ChatsScreen';
+import ChatDetailScreen from '../screens/ChatDetailScreen';
 import { useAuth } from '../context/AuthContext';
-import { RootStackParamList, MainTabParamList, FeedStackParamList } from './types';
+import { RootStackParamList, MainTabParamList, FeedStackParamList, ChatsStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const FeedStack = createNativeStackNavigator<FeedStackParamList>();
+const ChatsStack = createNativeStackNavigator<ChatsStackParamList>();
 
 /**
  * Feed tab has its own stack so Create Post keeps the tab bar visible
@@ -34,6 +36,17 @@ const FeedStackNavigator = () => (
     <FeedStack.Screen name="StoryCapture" component={StoryCaptureScreen} />
     <FeedStack.Screen name="Comments" component={CommentsScreen} />
   </FeedStack.Navigator>
+);
+
+/**
+ * Bottom Navigation Component - Instagram-style
+ * Chats tab has its own stack: list + conversation detail
+ */
+const ChatsStackNavigator = () => (
+  <ChatsStack.Navigator screenOptions={{ headerShown: false }}>
+    <ChatsStack.Screen name="ChatsList" component={ChatsScreen} />
+    <ChatsStack.Screen name="ChatDetail" component={ChatDetailScreen} />
+  </ChatsStack.Navigator>
 );
 
 /**
@@ -57,7 +70,7 @@ const MainTabs = () => {
             iconName = focused ? 'play-circle' : 'play-circle-outline';
           } else if (route.name === 'Search') {
             iconName = focused ? 'search' : 'search-outline';
-          } else if (route.name === 'Chats') {
+          } else if (route.name === 'ChatsStack') {
             iconName = focused ? 'chatbubble' : 'chatbubble-outline';
           } else if (route.name === 'Profile') {
             // Return circular avatar for profile tab
@@ -109,7 +122,7 @@ const MainTabs = () => {
       <Tab.Screen name="FeedStack" component={FeedStackNavigator} options={{ title: 'Feed' }} />
       <Tab.Screen name="Reels" component={ReelsScreen} options={{ title: 'Reels' }} />
       <Tab.Screen name="Search" component={SearchScreen} />
-      <Tab.Screen name="Chats" component={ChatsScreen} />
+      <Tab.Screen name="ChatsStack" component={ChatsStackNavigator} options={{ title: 'Chats' }} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

@@ -36,3 +36,32 @@ export interface CreatePostData {
   distance?: number;
   duration?: number;
 }
+
+export interface Reel {
+  _id: string;
+  userId: string;
+  user: User;
+  videoUri: string;
+  caption: string;
+  activityType?: ActivityType;
+  likes: string[];
+  commentCount?: number;
+  createdAt: string;
+}
+
+export interface Message {
+  _id: string;
+  conversationId: string;
+  senderId: string;
+  text: string;
+  createdAt: string;
+  read: boolean;
+}
+
+export interface Conversation {
+  _id: string;
+  participant: User;
+  lastMessage: { text: string; createdAt: string; senderId: string };
+  unreadCount: number;
+  updatedAt: string;
+}

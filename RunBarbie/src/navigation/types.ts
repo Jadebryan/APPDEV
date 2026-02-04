@@ -1,3 +1,5 @@
+import type { User } from '../types';
+
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
@@ -21,8 +23,13 @@ export type MainTabParamList = {
   FeedStack: undefined;
   Reels: undefined;
   Search: undefined;
-  Chats: undefined;
+  ChatsStack: undefined;
   Profile: undefined;
+};
+
+export type ChatsStackParamList = {
+  ChatsList: undefined;
+  ChatDetail: { conversationId: string; otherUser: User };
 };
 
 declare global {

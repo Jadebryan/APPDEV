@@ -1,4 +1,4 @@
-import { User, Post, Reel, ActivityType, Message, Conversation } from '../types';
+import { User, Post, Reel, ActivityType, Message, Conversation, CreateReelData } from '../types';
 
 // Mock users
 export const mockUsers: User[] = [
@@ -378,6 +378,18 @@ export const mockDataService = {
     currentMockUser = user;
   },
 
+  updateProfile: async (updates: { username?: string; bio?: string; avatar?: string }): Promise<User> => {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    if (!currentMockUser) throw new Error('Not authenticated');
+    const idx = mockUsers.findIndex(u => u._id === currentMockUser!._id);
+    if (idx === -1) throw new Error('User not found');
+    if (updates.username !== undefined) mockUsers[idx].username = updates.username;
+    if (updates.bio !== undefined) mockUsers[idx].bio = updates.bio;
+    if (updates.avatar !== undefined) mockUsers[idx].avatar = updates.avatar;
+    currentMockUser = { ...mockUsers[idx] };
+    return currentMockUser;
+  },
+
   // Reels
   getReels: async (): Promise<Reel[]> => {
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -403,6 +415,26 @@ export const mockDataService = {
       ...reel,
       user: mockUsers.find(u => u._id === reel.userId) || mockUsers[0],
     };
+  },
+
+  createReel: async (data: CreateReelData): Promise<Reel> => {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const user = currentMockUser;
+    if (!user) throw new Error('Not authenticated');
+    const newId = `r${Date.now()}`;
+    const reel: Reel = {
+      _id: newId,
+      userId: user._id,
+      user: { ...user },
+      videoUri: data.videoUri,
+      caption: data.caption.trim() || 'No caption',
+      activityType: data.activityType,
+      likes: [],
+      commentCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    mockReels.unshift(reel);
+    return reel;
   },
 
   // Search

@@ -18,12 +18,17 @@ import SearchScreen from '../screens/SearchScreen';
 import ChatsScreen from '../screens/ChatsScreen';
 import ChatDetailScreen from '../screens/ChatDetailScreen';
 import { useAuth } from '../context/AuthContext';
-import { RootStackParamList, MainTabParamList, FeedStackParamList, ChatsStackParamList } from './types';
+import EditProfileScreen from '../screens/EditProfileScreen';
+import ProfileMenuScreen from '../screens/ProfileMenuScreen';
+import CreateReelScreen from '../screens/CreateReelScreen';
+import { RootStackParamList, MainTabParamList, FeedStackParamList, ChatsStackParamList, ProfileStackParamList, ReelsStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const FeedStack = createNativeStackNavigator<FeedStackParamList>();
 const ChatsStack = createNativeStackNavigator<ChatsStackParamList>();
+const ProfileStack = createNativeStackNavigator<ProfileStackParamList>();
+const ReelsStack = createNativeStackNavigator<ReelsStackParamList>();
 
 /**
  * Feed tab has its own stack so Create Post keeps the tab bar visible
@@ -49,6 +54,21 @@ const ChatsStackNavigator = () => (
   </ChatsStack.Navigator>
 );
 
+const ProfileStackNavigator = () => (
+  <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+    <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} />
+    <ProfileStack.Screen name="ProfileMenu" component={ProfileMenuScreen} />
+    <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
+  </ProfileStack.Navigator>
+);
+
+const ReelsStackNavigator = () => (
+  <ReelsStack.Navigator screenOptions={{ headerShown: false }}>
+    <ReelsStack.Screen name="ReelsHome" component={ReelsScreen} />
+    <ReelsStack.Screen name="CreateReel" component={CreateReelScreen} />
+  </ReelsStack.Navigator>
+);
+
 /**
  * Bottom Navigation Component - Instagram-style
  * 5 icons: Home (filled when active), Reels, Chats, Search, Profile (circular avatar)
@@ -72,7 +92,7 @@ const MainTabs = () => {
             iconName = focused ? 'search' : 'search-outline';
           } else if (route.name === 'ChatsStack') {
             iconName = focused ? 'chatbubble' : 'chatbubble-outline';
-          } else if (route.name === 'Profile') {
+          } else if (route.name === 'ProfileStack') {
             // Return circular avatar for profile tab
             if (focused) {
               return (
@@ -120,10 +140,10 @@ const MainTabs = () => {
       })}
     >
       <Tab.Screen name="FeedStack" component={FeedStackNavigator} options={{ title: 'Feed' }} />
-      <Tab.Screen name="Reels" component={ReelsScreen} options={{ title: 'Reels' }} />
+      <Tab.Screen name="Reels" component={ReelsStackNavigator} options={{ title: 'Reels' }} />
       <Tab.Screen name="Search" component={SearchScreen} />
       <Tab.Screen name="ChatsStack" component={ChatsStackNavigator} options={{ title: 'Chats' }} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="ProfileStack" component={ProfileStackNavigator} options={{ title: 'Profile' }} />
     </Tab.Navigator>
   );
 };

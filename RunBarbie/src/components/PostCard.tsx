@@ -145,7 +145,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
             <Text style={styles.timestamp}>{getTimeAgo(post.createdAt)}</Text>
           ) : null}
         </View>
-        <TouchableOpacity style={styles.menuButton} onPress={handleMenu}>
+        <TouchableOpacity style={styles.menuButton} onPress={handleMenu} activeOpacity={0.7}>
           <Ionicons name="ellipsis-horizontal" size={20} color="#000" />
         </TouchableOpacity>
       </View>
@@ -410,7 +410,12 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   menuButton: {
-    padding: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   imageContainer: {
     position: 'relative',
@@ -419,7 +424,7 @@ const styles = StyleSheet.create({
   },
   image: {
     width: '100%',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#7a2276ff',
   },
   heartOverlay: {
     ...StyleSheet.absoluteFillObject,

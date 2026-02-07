@@ -21,10 +21,21 @@ export type FeedStackParamList = {
 
 export type MainTabParamList = {
   FeedStack: undefined;
-  Reels: undefined;
+  Reels: { screen?: 'ReelsHome' | 'CreateReel'; params?: { initialReelId?: string } };
   Search: undefined;
   ChatsStack: undefined;
-  Profile: undefined;
+  ProfileStack: undefined;
+};
+
+export type ReelsStackParamList = {
+  ReelsHome: { initialReelId?: string };
+  CreateReel: undefined;
+};
+
+export type ProfileStackParamList = {
+  ProfileHome: undefined;
+  ProfileMenu: undefined;
+  EditProfile: undefined;
 };
 
 export type ChatsStackParamList = {

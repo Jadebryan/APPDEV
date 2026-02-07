@@ -535,7 +535,12 @@ const CreatePostScreen: React.FC = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tab, postType === 'REEL' && styles.tabActive]}
-            onPress={() => setPostType('REEL')}
+            onPress={() => {
+              setPostType('REEL');
+              const tabNav = navigation.getParent()?.getParent();
+              (tabNav as any)?.navigate('Reels', { screen: 'CreateReel' });
+              navigation.goBack();
+            }}
           >
             <Text style={[styles.tabText, postType === 'REEL' && styles.tabTextActive]}>
               REEL

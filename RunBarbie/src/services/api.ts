@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AuthResponse, Post, User, CreatePostData, Conversation, Message } from '../types';
+import { AuthResponse, Post, User, CreatePostData, CreateReelData, Reel, Conversation, Message } from '../types';
 import { storage } from '../utils/storage';
 import { mockDataService } from './mockData';
 
@@ -67,6 +67,10 @@ const mockUserService = {
   followUser: async (userId: string): Promise<User> => {
     return await mockDataService.followUser(userId);
   },
+
+  updateProfile: async (updates: { username?: string; bio?: string; avatar?: string }): Promise<User> => {
+    return await mockDataService.updateProfile(updates);
+  },
 };
 
 export interface SearchTag {
@@ -129,6 +133,11 @@ const realUserService = {
     const response = await api.post(`/users/${userId}/follow`);
     return response.data;
   },
+
+  updateProfile: async (_updates: { username?: string; bio?: string; avatar?: string }): Promise<User> => {
+    const response = await api.patch('/users/me', _updates);
+    return response.data;
+  },
 };
 
 // Real search (stub - use mock for now)
@@ -140,6 +149,18 @@ const realSearchService = {
   addRecentSearch: (_term: string) => {},
   clearRecentSearches: () => {},
   getSuggestedUsers: async (): Promise<User[]> => [],
+};
+
+const mockReelService = {
+  getReels: async (): Promise<Reel[]> => mockDataService.getReels(),
+  likeReel: async (reelId: string): Promise<Reel> => mockDataService.likeReel(reelId),
+  createReel: async (data: CreateReelData): Promise<Reel> => mockDataService.createReel(data),
+};
+
+const realReelService = {
+  getReels: async (): Promise<Reel[]> => [],
+  likeReel: async (_reelId: string): Promise<Reel> => ({} as Reel),
+  createReel: async (_data: CreateReelData): Promise<Reel> => ({} as Reel),
 };
 
 const mockChatService = {
@@ -166,5 +187,6 @@ export const postService = USE_MOCK_DATA ? mockPostService : realPostService;
 export const userService = USE_MOCK_DATA ? mockUserService : realUserService;
 export const searchService = USE_MOCK_DATA ? mockSearchService : realSearchService;
 export const chatService = USE_MOCK_DATA ? mockChatService : realChatService;
+export const reelService = USE_MOCK_DATA ? mockReelService : realReelService;
 
 export default api;

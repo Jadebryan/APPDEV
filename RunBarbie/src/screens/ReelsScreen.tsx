@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -208,6 +208,7 @@ const ReelsScreen: React.FC = () => {
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const route = useRoute<{ params?: { initialReelId?: string } }>();
   const isLandscape = SCREEN_WIDTH > SCREEN_HEIGHT;
   const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -232,16 +233,42 @@ const ReelsScreen: React.FC = () => {
   const lastTapRef = useRef<{ reelId: string; time: number }>({ reelId: '', time: 0 });
   const flatListRef = useRef<FlatList>(null);
   const prevOrientationRef = useRef(isLandscape);
+  const isScreenFocused = useIsFocused();
 
   useEffect(() => {
     loadReels();
   }, []);
+
+  const isFirstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocus.current) {
+        isFirstFocus.current = false;
+        return;
+      }
+      loadReels();
+    }, [])
+  );
 
   useEffect(() => {
     if (user?.following) {
       setFollowingIds(prev => new Set([...prev, ...user.following]));
     }
   }, [user?.following]);
+
+  // When opened from Profile with initialReelId, scroll to that reel
+  const initialReelId = route?.params?.initialReelId;
+  useEffect(() => {
+    const id = initialReelId;
+    if (!id || reels.length === 0 || REEL_ITEM_HEIGHT <= 0) return;
+    const idx = reels.findIndex(r => r._id === id);
+    if (idx >= 0) {
+      setActiveIndex(idx);
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: idx * REEL_ITEM_HEIGHT, animated: false });
+      }, 150);
+    }
+  }, [reels, initialReelId, REEL_ITEM_HEIGHT]);
 
   // On orientation change: scroll to current reel so it stays in view and layout is correct
   useEffect(() => {
@@ -275,6 +302,10 @@ const ReelsScreen: React.FC = () => {
     setRefreshing(true);
     loadReels();
   }, []);
+
+  const openCreateReel = useCallback(() => {
+    (navigation as any).navigate('CreateReel');
+  }, [navigation]);
 
   const handleLikeReel = useCallback(
     async (reelId: string) => {
@@ -416,7 +447,7 @@ const ReelsScreen: React.FC = () => {
         <ReelCell
           item={item}
           index={index}
-          isActive={index === activeIndex}
+          isActive={index === activeIndex && isScreenFocused}
           muted={muted}
           isLiked={!!(user && item.likes.includes(user._id))}
           isFollowing={followingIds.has(item.userId)}
@@ -435,7 +466,7 @@ const ReelsScreen: React.FC = () => {
         />
       );
     },
-    [activeIndex, muted, user, followingIds, overlayBottom, rightActionsBottom, SCREEN_WIDTH, REEL_ITEM_HEIGHT, handleReelPress, handleLikeReel, handleOpenComments, handleShareReel, handleMoreReel, handleFollowReelUser, handleUsernamePress]
+    [activeIndex, isScreenFocused, muted, user, followingIds, overlayBottom, rightActionsBottom, SCREEN_WIDTH, REEL_ITEM_HEIGHT, handleReelPress, handleLikeReel, handleOpenComments, handleShareReel, handleMoreReel, handleFollowReelUser, handleUsernamePress]
   );
 
   const getItemLayout = useCallback(
@@ -461,13 +492,23 @@ const ReelsScreen: React.FC = () => {
   if (reels.length === 0) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
+        <TouchableOpacity
+          style={[styles.createReelBtn, { top: insets.top + 8 }]}
+          onPress={openCreateReel}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="add-circle" size={36} color="#fff" />
+        </TouchableOpacity>
         <View style={styles.emptyWrap}>
           <Ionicons name="videocam-outline" size={64} color="#ccc" />
           <Text style={styles.emptyTitle}>No reels yet</Text>
           <Text style={styles.emptySubtext}>
-            Short-form video from the community — check back soon
+            Short-form video from the community — or create your first reel
           </Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={loadReels}>
+          <TouchableOpacity style={styles.retryBtn} onPress={openCreateReel}>
+            <Text style={styles.retryBtnText}>Create reel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.retryBtn, { marginTop: 8 }]} onPress={loadReels}>
             <Text style={styles.retryBtnText}>Refresh</Text>
           </TouchableOpacity>
         </View>
@@ -477,7 +518,15 @@ const ReelsScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar style="light" />
+      <StatusBar style={isScreenFocused ? 'light' : 'dark'} />
+      {/* Create reel button - top right */}
+      <TouchableOpacity
+        style={[styles.createReelBtn, { top: insets.top + 8 }]}
+        onPress={openCreateReel}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="add-circle" size={36} color="#fff" />
+      </TouchableOpacity>
       {/* Reel area fills remaining space; measured height = no black gap */}
       <View
         style={styles.reelAreaWrapper}
@@ -489,7 +538,7 @@ const ReelsScreen: React.FC = () => {
           data={reels}
           keyExtractor={item => item._id}
           renderItem={renderReelItem}
-          extraData={{ activeIndex, muted }}
+          extraData={{ activeIndex, muted, isScreenFocused }}
           style={styles.flatList}
           contentContainerStyle={styles.flatListContent}
           pagingEnabled
@@ -725,6 +774,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  createReelBtn: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   reelAreaWrapper: {
     flex: 1,

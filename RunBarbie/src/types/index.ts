@@ -49,6 +49,12 @@ export interface Reel {
   createdAt: string;
 }
 
+export interface CreateReelData {
+  videoUri: string;
+  caption: string;
+  activityType?: ActivityType;
+}
+
 export interface Message {
   _id: string;
   conversationId: string;

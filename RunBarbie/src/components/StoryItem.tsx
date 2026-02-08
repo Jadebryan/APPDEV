@@ -6,6 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 interface StoryItemProps {
   username: string;
   avatar?: string;
+  /** When set, show this as the circle image (story preview, IG-style) instead of avatar */
+  storyPreviewUri?: string;
   isActive: boolean;
   isYourStory?: boolean;
   onPress?: () => void;
@@ -20,6 +22,7 @@ interface StoryItemProps {
 const StoryItem: React.FC<StoryItemProps> = ({
   username,
   avatar,
+  storyPreviewUri,
   isActive,
   isYourStory = false,
   onPress,
@@ -29,10 +32,13 @@ const StoryItem: React.FC<StoryItemProps> = ({
   const ringWidth = 2;
   const totalSize = avatarSize + ringWidth * 2;
 
+  // Instagram-style: show story preview (first story image) when active, else avatar
+  const imageUri = storyPreviewUri || avatar;
+
   const AvatarContent = () => (
     <View style={[styles.avatarWrapper, { width: avatarSize, height: avatarSize }]}>
-      {avatar ? (
-        <Image source={{ uri: avatar }} style={styles.avatar} />
+      {imageUri ? (
+        <Image source={{ uri: imageUri }} style={styles.avatar} />
       ) : (
         <View style={[styles.avatar, styles.avatarPlaceholder]}>
           <Ionicons name="person" size={32} color="#999" />

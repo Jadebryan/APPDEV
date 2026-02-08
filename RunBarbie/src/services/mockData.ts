@@ -1,15 +1,15 @@
 import { User, Post, Reel, ActivityType, Message, Conversation, CreateReelData } from '../types';
 
-// Mock users
+// Mock users (avatars: Unsplash / pravatar)
 export const mockUsers: User[] = [
   {
     _id: '1',
     email: 'hiker1@example.com',
     username: 'trail_runner',
     bio: 'Love hiking and running! 🏃‍♀️',
-    avatar: '',
-    followers: ['2', '3'],
-    following: ['2'],
+    avatar: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=200',
+    followers: ['2', '3', '4'],
+    following: ['2', '4'],
     createdAt: new Date().toISOString(),
   },
   {
@@ -17,9 +17,9 @@ export const mockUsers: User[] = [
     email: 'runner2@example.com',
     username: 'marathon_mike',
     bio: 'Training for my next marathon 💪',
-    avatar: '',
-    followers: ['1', '3'],
-    following: ['1'],
+    avatar: 'https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=200',
+    followers: ['1', '3', '5'],
+    following: ['1', '3'],
     createdAt: new Date().toISOString(),
   },
   {
@@ -27,25 +27,56 @@ export const mockUsers: User[] = [
     email: 'cyclist3@example.com',
     username: 'bike_lover',
     bio: 'Cycling enthusiast 🚴',
-    avatar: '',
-    followers: ['1'],
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200',
+    followers: ['1', '2'],
+    following: ['1', '2', '4'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    _id: '4',
+    email: 'runner4@example.com',
+    username: 'sunrise_jogger',
+    bio: 'Early morning miles ☀️ Trail & road',
+    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200',
+    followers: ['1', '2', '3'],
     following: ['1', '2'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    _id: '5',
+    email: 'hiker5@example.com',
+    username: 'peak_seeker',
+    bio: 'Summit chaser 🏔️ PH trails',
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200',
+    followers: ['1', '2', '4'],
+    following: ['1', '4'],
+    createdAt: new Date().toISOString(),
+  },
+  {
+    _id: '6',
+    email: 'run6@example.com',
+    username: 'weekend_warrior',
+    bio: 'Long runs on weekends only 😅',
+    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200',
+    followers: ['2', '3'],
+    following: ['1', '2', '3', '4', '5'],
     createdAt: new Date().toISOString(),
   },
 ];
 
-// Mock posts
+// Mock posts (all with Unsplash images)
 export const mockPosts: Post[] = [
   {
     _id: '1',
     userId: '1',
     user: mockUsers[0],
     image: 'https://images.unsplash.com/photo-1544966503-7cc75df67383?w=800',
-    caption: 'Beautiful morning run! 🏃‍♀️',
+    caption: 'Beautiful morning run! #running #morningrun 🏃‍♀️',
     activityType: 'run',
     distance: 5.2,
     duration: 28,
     likes: ['2', '3'],
+    location: { latitude: 14.5995, longitude: 120.9842, name: 'Rizal Park, Manila' },
     createdAt: new Date(Date.now() - 3600000).toISOString(),
   },
   {
@@ -53,7 +84,7 @@ export const mockPosts: Post[] = [
     userId: '2',
     user: mockUsers[1],
     image: 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=800',
-    caption: 'Amazing hike today! The view was incredible 🥾',
+    caption: 'Amazing hike today! #hiking #outdoors The view was incredible 🥾',
     activityType: 'hike',
     distance: 12.5,
     duration: 180,
@@ -65,12 +96,73 @@ export const mockPosts: Post[] = [
     userId: '3',
     user: mockUsers[2],
     image: 'https://images.unsplash.com/photo-1502744688674-c619d1586c0a?w=800',
-    caption: 'Long ride through the countryside 🚴',
+    caption: 'Long ride through the countryside #cycling #fitness 🚴',
     activityType: 'cycle',
     distance: 45.0,
     duration: 120,
     likes: ['1', '2'],
     createdAt: new Date(Date.now() - 10800000).toISOString(),
+  },
+  {
+    _id: '4',
+    userId: '4',
+    user: mockUsers[3],
+    image: 'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=800',
+    caption: 'Sunrise 10K done! #running #trailrun #fitness',
+    activityType: 'run',
+    distance: 10,
+    duration: 52,
+    likes: ['1', '2', '5'],
+    location: { latitude: 14.5520, longitude: 121.0515, name: 'BGC, Taguig' },
+    createdAt: new Date(Date.now() - 5400000).toISOString(),
+  },
+  {
+    _id: '5',
+    userId: '5',
+    user: mockUsers[4],
+    image: 'https://images.unsplash.com/photo-1522163182402-834f871fd851?w=800',
+    caption: 'Summit sunrise 🏔️ #hiking #mountains #outdoors',
+    activityType: 'hike',
+    distance: 8.5,
+    duration: 240,
+    likes: ['1', '3', '4'],
+    createdAt: new Date(Date.now() - 9000000).toISOString(),
+  },
+  {
+    _id: '6',
+    userId: '1',
+    user: mockUsers[0],
+    image: 'https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=800',
+    caption: 'Recovery run in the park #running #recovery',
+    activityType: 'run',
+    distance: 3.0,
+    duration: 18,
+    likes: ['4'],
+    createdAt: new Date(Date.now() - 14400000).toISOString(),
+  },
+  {
+    _id: '7',
+    userId: '6',
+    user: mockUsers[5],
+    image: 'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=800',
+    caption: 'Weekend long run with the crew #running #longrun #runbarbie',
+    activityType: 'run',
+    distance: 21,
+    duration: 125,
+    likes: ['1', '2', '3', '4'],
+    createdAt: new Date(Date.now() - 17280000).toISOString(),
+  },
+  {
+    _id: '8',
+    userId: '2',
+    user: mockUsers[1],
+    image: 'https://images.unsplash.com/photo-1452626038306-9aae5e071dd3?w=800',
+    caption: 'Trail run in the rain 🌧️ #trailrun #running',
+    activityType: 'run',
+    distance: 7.2,
+    duration: 42,
+    likes: ['3', '5'],
+    createdAt: new Date(Date.now() - 21600000).toISOString(),
   },
 ];
 
@@ -94,6 +186,7 @@ export const mockReels: Reel[] = [
     activityType: 'run',
     likes: ['2', '3'],
     commentCount: 5,
+    duration: 18,
     createdAt: new Date(Date.now() - 3600000).toISOString(),
   },
   {
@@ -105,6 +198,7 @@ export const mockReels: Reel[] = [
     activityType: 'hike',
     likes: ['1'],
     commentCount: 2,
+    duration: 30,
     createdAt: new Date(Date.now() - 7200000).toISOString(),
   },
   {
@@ -116,6 +210,7 @@ export const mockReels: Reel[] = [
     activityType: 'cycle',
     likes: ['1', '2'],
     commentCount: 8,
+    duration: 45,
     createdAt: new Date(Date.now() - 10800000).toISOString(),
   },
   {
@@ -127,6 +222,7 @@ export const mockReels: Reel[] = [
     activityType: 'run',
     likes: [],
     commentCount: 0,
+    duration: 22,
     createdAt: new Date(Date.now() - 14400000).toISOString(),
   },
   {
@@ -138,7 +234,44 @@ export const mockReels: Reel[] = [
     activityType: 'run',
     likes: ['3'],
     commentCount: 3,
+    duration: 15,
     createdAt: new Date(Date.now() - 18000000).toISOString(),
+  },
+  {
+    _id: 'r6',
+    userId: '4',
+    user: mockUsers[3],
+    videoUri: SAMPLE_VIDEOS[0],
+    caption: 'Morning vibes only 🌅',
+    activityType: 'run',
+    likes: ['1', '2'],
+    commentCount: 4,
+    duration: 20,
+    createdAt: new Date(Date.now() - 21600000).toISOString(),
+  },
+  {
+    _id: 'r7',
+    userId: '5',
+    user: mockUsers[4],
+    videoUri: SAMPLE_VIDEOS[1],
+    caption: 'Peak views today 🏔️',
+    activityType: 'hike',
+    likes: ['1', '3', '4'],
+    commentCount: 6,
+    duration: 28,
+    createdAt: new Date(Date.now() - 25200000).toISOString(),
+  },
+  {
+    _id: 'r8',
+    userId: '6',
+    user: mockUsers[5],
+    videoUri: SAMPLE_VIDEOS[2],
+    caption: 'Sunday long run recap',
+    activityType: 'run',
+    likes: ['2'],
+    commentCount: 1,
+    duration: 35,
+    createdAt: new Date(Date.now() - 28800000).toISOString(),
   },
 ];
 
@@ -261,6 +394,13 @@ export const mockDataService = {
     return { token, user: newUser };
   },
 
+  requestPasswordReset: async (email: string): Promise<void> => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+    // Mock: always succeed (don't reveal if email exists). Real backend would send email.
+    const _exists = mockUsers.some(u => u.email === email);
+    return;
+  },
+
   // Posts
   getAllPosts: async (): Promise<Post[]> => {
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -276,6 +416,7 @@ export const mockDataService = {
     activityType: ActivityType;
     distance?: number;
     duration?: number;
+    location?: { latitude: number; longitude: number; name?: string };
   }): Promise<Post> => {
     await new Promise(resolve => setTimeout(resolve, 500));
     
@@ -293,6 +434,7 @@ export const mockDataService = {
       distance: postData.distance,
       duration: postData.duration,
       likes: [],
+      location: postData.location,
       createdAt: new Date().toISOString(),
     };
     
@@ -431,6 +573,7 @@ export const mockDataService = {
       activityType: data.activityType,
       likes: [],
       commentCount: 0,
+      duration: 15,
       createdAt: new Date().toISOString(),
     };
     mockReels.unshift(reel);
@@ -475,10 +618,20 @@ export const mockDataService = {
 
   getSuggestedUsers: async (): Promise<User[]> => {
     await new Promise(resolve => setTimeout(resolve, 150));
-    if (!currentMockUser) return mockUsers.slice(0, 5);
+    if (!currentMockUser) return mockUsers.slice(0, 8);
     return mockUsers
       .filter(u => u._id !== currentMockUser!._id)
-      .slice(0, 5);
+      .slice(0, 8);
+  },
+
+  getUpcomingTrailPosts: async (): Promise<{ id: string; title: string; trailName: string; date: string; image: string; location?: string; registerUrl?: string; postId?: string }[]> => {
+    await new Promise(resolve => setTimeout(resolve, 150));
+    return [
+      { id: 'ut1', title: 'Manila Mountain Trail Run 2025', trailName: 'Rizal Mountain Range', date: 'Sat, Mar 8', image: mockPosts[0].image, location: 'Rizal, Philippines', registerUrl: 'https://example.com/events/manila-mountain-2025' },
+      { id: 'ut2', title: 'Cordillera Ultra Trail', trailName: 'Benguet Highlands', date: 'Sun, Mar 9', image: mockPosts[1].image, location: 'Baguio, Philippines', registerUrl: 'https://example.com/events/cordillera-ultra' },
+      { id: 'ut3', title: 'Palawan Coastal Trail Run', trailName: 'El Nido Trails', date: 'Sat, Mar 15', image: 'https://images.unsplash.com/photo-1551632811-561732d1e306?w=800', location: 'Palawan, Philippines', registerUrl: 'https://example.com/events/palawan-coastal' },
+      { id: 'ut4', title: 'Tagaytay Ridge Run', trailName: 'Taal Vista Trails', date: 'Sun, Mar 16', image: 'https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=800', location: 'Tagaytay, Philippines' },
+    ];
   },
 
   // Chats

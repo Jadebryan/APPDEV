@@ -10,22 +10,34 @@ import {
   Image,
   Alert,
   Keyboard,
+  ScrollView,
+  useWindowDimensions,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { User } from '../types';
-import { searchService, SearchTag, userService } from '../services/api';
+import { searchService, SearchTag, userService, UpcomingTrailPost } from '../services/api';
 
 type TabType = 'all' | 'accounts' | 'tags';
 
+const CARD_WIDTH = 160;
+const CARD_MARGIN = 8;
+
 const SearchScreen: React.FC = () => {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, facebookAccessToken } = useAuth();
+  const { showToast } = useToast();
+  const navigation = useNavigation<any>();
+  const { width: screenWidth } = useWindowDimensions();
   const [query, setQuery] = useState('');
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<User[]>([]);
   const [trendingTags, setTrendingTags] = useState<SearchTag[]>([]);
+  const [upcomingTrailPosts, setUpcomingTrailPosts] = useState<UpcomingTrailPost[]>([]);
   const [userResults, setUserResults] = useState<User[]>([]);
   const [tagResults, setTagResults] = useState<SearchTag[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
@@ -35,19 +47,21 @@ const SearchScreen: React.FC = () => {
   const loadSuggestions = useCallback(async () => {
     setLoadingSuggestions(true);
     try {
-      const [users, tags] = await Promise.all([
+      const [users, tags, upcoming] = await Promise.all([
         searchService.getSuggestedUsers(),
         searchService.getTrendingTags(),
+        searchService.getUpcomingTrailPosts(facebookAccessToken ?? undefined),
       ]);
       setSuggestedUsers(users);
       setTrendingTags(tags);
+      setUpcomingTrailPosts(upcoming);
       setRecentSearches(searchService.getRecentSearches());
     } catch (e) {
       console.error('Load suggestions error', e);
     } finally {
       setLoadingSuggestions(false);
     }
-  }, []);
+  }, [facebookAccessToken]);
 
   useEffect(() => {
     loadSuggestions();
@@ -123,14 +137,52 @@ const SearchScreen: React.FC = () => {
         return next;
       });
     } catch (e) {
-      Alert.alert('Error', 'Could not update follow.');
+      showToast('Could not update follow.', 'error');
     }
   };
 
   const handleTagTap = (tag: string) => {
-    setQuery(tag);
-    searchService.addRecentSearch(tag);
+    const tagName = tag.replace(/^#/, '');
+    searchService.addRecentSearch(tag.startsWith('#') ? tag : `#${tagName}`);
     setRecentSearches(searchService.getRecentSearches());
+    setQuery('');
+    navigation.navigate('FeedStack', {
+      screen: 'FeedHome',
+      params: { tag: tagName },
+    });
+  };
+
+  const handleAccountPress = (item: User) => {
+    if (currentUser?._id === item._id) return;
+    navigation.navigate('FeedStack', {
+      screen: 'UserProfile',
+      params: {
+        userId: item._id,
+        username: item.username,
+        avatar: item.avatar,
+        bio: item.bio,
+      },
+    });
+  };
+
+  const handleUpcomingTrailPress = (item: UpcomingTrailPost) => {
+    if (item.registerUrl) {
+      Linking.openURL(item.registerUrl).catch(() => showToast('Could not open registration link.', 'error'));
+      return;
+    }
+    if (item.postId) {
+      navigation.navigate('FeedStack', {
+        screen: 'Comments',
+        params: {
+          postId: item.postId,
+          username: '',
+          caption: item.title,
+          image: item.image,
+        },
+      });
+      return;
+    }
+    Alert.alert(item.title, 'Event details & registration coming soon.');
   };
 
   const isFollowing = (userId: string) => followingIds.has(userId);
@@ -145,7 +197,7 @@ const SearchScreen: React.FC = () => {
       <TouchableOpacity
         style={styles.accountRow}
         activeOpacity={0.7}
-        onPress={() => (isCurrentUser ? null : Alert.alert('Profile', 'Profile coming soon'))}
+        onPress={() => handleAccountPress(item)}
       >
         <View style={styles.avatarWrap}>
           {item.avatar ? (
@@ -244,6 +296,41 @@ const SearchScreen: React.FC = () => {
           data={['footer']}
           ListHeaderComponent={
             <>
+              {upcomingTrailPosts.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Highlight</Text>
+                  <Text style={styles.highlightSubtitle}>Trail run events – discover & register</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.upcomingScrollContent}
+                  >
+                    {upcomingTrailPosts.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[styles.upcomingCard, { width: CARD_WIDTH }]}
+                        activeOpacity={0.8}
+                        onPress={() => handleUpcomingTrailPress(item)}
+                      >
+                        <Image source={{ uri: item.image }} style={styles.upcomingCardImage} />
+                        <View style={styles.upcomingCardOverlay} />
+                        <View style={styles.upcomingCardContent}>
+                          {item.registerUrl ? (
+                            <View style={styles.upcomingCardRegisterBadge}>
+                              <Text style={styles.upcomingCardRegisterText}>Register</Text>
+                            </View>
+                          ) : null}
+                          <Text style={styles.upcomingCardTitle} numberOfLines={2}>{item.title}</Text>
+                          <Text style={styles.upcomingCardTrail} numberOfLines={1}>
+                            {item.location || item.trailName}
+                          </Text>
+                          <Text style={styles.upcomingCardDate}>{item.date}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
               {recentSearches.length > 0 && (
                 <View style={styles.section}>
                   <View style={styles.sectionRow}>
@@ -401,6 +488,67 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#666',
     marginBottom: 8,
+  },
+  highlightSubtitle: {
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 12,
+  },
+  upcomingScrollContent: {
+    paddingRight: 16,
+    gap: CARD_MARGIN,
+  },
+  upcomingCard: {
+    height: 140,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginRight: CARD_MARGIN,
+  },
+  upcomingCardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  upcomingCardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  upcomingCardContent: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: 10,
+  },
+  upcomingCardRegisterBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#0095F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  upcomingCardRegisterText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  upcomingCardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  upcomingCardTrail: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.95)',
+    marginTop: 2,
+  },
+  upcomingCardDate: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 2,
   },
   sectionAction: {
     fontSize: 14,

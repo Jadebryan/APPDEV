@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   FlatList,
@@ -7,23 +7,26 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
+  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import PostCard from '../components/PostCard';
 import StoriesSection from '../components/StoriesSection';
 import FeedHeader from '../components/FeedHeader';
 import SkeletonPost from '../components/SkeletonPost';
-import { ActivityType, Post } from '../types';
-import { postService } from '../services/api';
+import { ActivityType, Post, Reel } from '../types';
+import { postService, reelService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
 
 type FeedScreenNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
+type FeedHomeRoute = RouteProp<FeedStackParamList, 'FeedHome'>;
 
 const MOTIVATIONAL_LINES = [
   'Every step counts. 🏃‍♀️',
@@ -40,14 +43,21 @@ type ActivityFilter = ActivityType | 'all';
  * Layout: Sticky header → Stories → Smart summary → Filters → Motivational line → Posts
  */
 const FeedScreen: React.FC = () => {
+  const route = useRoute<FeedHomeRoute>();
+  const tagFromParams = route.params?.tag;
   const [posts, setPosts] = useState<Post[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sortBy, setSortBy] = useState<FeedSort>('latest');
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const { user } = useAuth();
+  const [hiddenPostIds, setHiddenPostIds] = useState<Set<string>>(new Set());
+  const [mutedUserIds, setMutedUserIds] = useState<Set<string>>(new Set());
+  const { user, updateUser } = useAuth();
+  const { showToast } = useToast();
   const navigation = useNavigation<FeedScreenNav>();
+  const savedPostIds = useMemo(() => new Set(user?.savedPosts ?? []), [user?.savedPosts]);
   const motivationalLine = MOTIVATIONAL_LINES[Math.floor(Math.random() * MOTIVATIONAL_LINES.length)];
   const listRef = useRef<FlatList<Post>>(null);
 
@@ -57,10 +67,14 @@ const FeedScreen: React.FC = () => {
 
   const loadPosts = async () => {
     try {
-      const data = await postService.getAllPosts();
-      setPosts(data);
+      const [postsData, reelsData] = await Promise.all([
+        postService.getAllPosts(),
+        reelService.getReels(),
+      ]);
+      setPosts(postsData);
+      setReels(reelsData);
     } catch (error) {
-      console.error('Error loading posts:', error);
+      console.error('Error loading feed:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -82,6 +96,21 @@ const FeedScreen: React.FC = () => {
       console.error('Error liking post:', error);
     }
   };
+
+  const handleBookmark = useCallback(async (postId: string) => {
+    if (!user) return;
+    try {
+      const isSaved = savedPostIds.has(postId);
+      const res = isSaved
+        ? await postService.unbookmarkPost(postId)
+        : await postService.bookmarkPost(postId);
+      await updateUser({ ...user, savedPosts: res.savedPosts });
+      showToast(isSaved ? 'Run removed from saved' : 'Run saved', 'success');
+    } catch (error) {
+      console.error('Error toggling bookmark:', error);
+      showToast('Could not update saved', 'error');
+    }
+  }, [user, savedPostIds, updateUser, showToast]);
 
   const { weekDistanceKm, weekDurationMin, myPostsThisWeek, streakDays } = useMemo(() => {
     if (!user?._id) {
@@ -123,17 +152,36 @@ const FeedScreen: React.FC = () => {
   }, [posts, user?._id]);
 
   const visiblePosts = useMemo(() => {
-    let data = [...posts];
+    let data = posts.filter((p) => !hiddenPostIds.has(p._id) && !mutedUserIds.has(p.userId));
+    if (tagFromParams) {
+      const tagLower = tagFromParams.toLowerCase().replace(/^#/, '');
+      data = data.filter(
+        (p) =>
+          p.caption.toLowerCase().includes(`#${tagLower}`) ||
+          p.caption.toLowerCase().includes(` ${tagLower} `) ||
+          p.caption.toLowerCase().startsWith(`${tagLower} `) ||
+          p.caption.toLowerCase().endsWith(` ${tagLower}`)
+      );
+    }
     if (activityFilter !== 'all') {
       data = data.filter((p) => p.activityType === activityFilter);
     }
+    const sorted = [...data];
     if (sortBy === 'popular') {
-      data.sort((a, b) => (b.likes?.length ?? 0) - (a.likes?.length ?? 0));
+      sorted.sort((a, b) => (b.likes?.length ?? 0) - (a.likes?.length ?? 0));
     } else {
-      data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
-    return data;
-  }, [posts, activityFilter, sortBy]);
+    return sorted;
+  }, [posts, activityFilter, sortBy, hiddenPostIds, mutedUserIds, tagFromParams]);
+
+  const handleHidePost = useCallback((postId: string) => {
+    setHiddenPostIds((prev) => new Set(prev).add(postId));
+  }, []);
+
+  const handleMuteUser = useCallback((userId: string) => {
+    setMutedUserIds((prev) => new Set(prev).add(userId));
+  }, []);
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = e.nativeEvent.contentOffset.y;
@@ -204,6 +252,19 @@ const FeedScreen: React.FC = () => {
         </Text>
       </View>
 
+      {tagFromParams ? (
+        <View style={styles.tagFilterRow}>
+          <Text style={styles.tagFilterLabel}>Viewing #{tagFromParams}</Text>
+          <TouchableOpacity
+            style={styles.tagFilterClear}
+            onPress={() => navigation.setParams({ tag: undefined })}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close-circle" size={20} color="#666" />
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
       {/* Smart filters */}
       <View style={styles.filtersRow}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersContent}>
@@ -217,6 +278,60 @@ const FeedScreen: React.FC = () => {
           <FilterPill label="Walk" active={activityFilter === 'walk'} onPress={() => setActivityFilter('walk')} />
         </ScrollView>
       </View>
+
+      {/* Reels row – Instagram-style horizontal strip */}
+      {reels.length > 0 && (
+        <View style={styles.reelsSection}>
+          <View style={styles.reelsSectionHeader}>
+            <Text style={styles.reelsSectionTitle}>Reels</Text>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => (navigation.getParent() as any)?.navigate('Reels', { screen: 'ReelsHome' })}
+            >
+              <Text style={styles.reelsSeeAll}>See all</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.reelsScrollContent}
+          >
+            {reels.slice(0, 12).map((reel) => (
+              <TouchableOpacity
+                key={reel._id}
+                activeOpacity={0.9}
+                style={styles.reelCard}
+                onPress={() =>
+                  (navigation.getParent() as any)?.navigate('Reels', {
+                    screen: 'ReelsHome',
+                    params: { initialReelId: reel._id },
+                  })
+                }
+              >
+                <View style={styles.reelCardThumb}>
+                  <View style={styles.reelCardPlaceholder}>
+                    <Ionicons name="play" size={32} color="rgba(255,255,255,0.9)" />
+                  </View>
+                  {reel.user?.avatar ? (
+                    <View style={styles.reelCardAvatarWrap}>
+                      <Image source={{ uri: reel.user.avatar }} style={styles.reelCardAvatar} />
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={styles.reelCardCaption} numberOfLines={2}>
+                  {reel.caption || 'Reel'}
+                </Text>
+                {(reel.likes?.length ?? 0) > 0 && (
+                  <View style={styles.reelCardMeta}>
+                    <Ionicons name="heart" size={12} color="#666" />
+                    <Text style={styles.reelCardLikes}>{reel.likes.length}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       <View style={styles.motivationalRow}>
         <Text style={styles.motivationalText}>{motivationalLine}</Text>
@@ -259,6 +374,7 @@ const FeedScreen: React.FC = () => {
       <FeedHeader />
 
       <FlatList
+        key={`feed-${sortBy}-${activityFilter}-${tagFromParams ?? ''}`}
         ref={listRef}
         data={visiblePosts}
         renderItem={({ item }) => (
@@ -266,6 +382,10 @@ const FeedScreen: React.FC = () => {
             post={item}
             onLike={handleLike}
             currentUserId={user?._id}
+            saved={savedPostIds.has(item._id)}
+            onBookmark={user ? handleBookmark : undefined}
+            onHidePost={handleHidePost}
+            onMuteUser={handleMuteUser}
           />
         )}
         keyExtractor={(item) => item._id}
@@ -362,6 +482,24 @@ const styles = StyleSheet.create({
   smartCtaTextInactive: {
     color: '#555555',
   },
+  tagFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#f8f8f8',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+  },
+  tagFilterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0095f6',
+  },
+  tagFilterClear: {
+    padding: 4,
+  },
   filtersRow: {
     paddingTop: 10,
     paddingBottom: 6,
@@ -402,6 +540,81 @@ const styles = StyleSheet.create({
   },
   pillTextInactive: {
     color: '#111',
+  },
+  reelsSection: {
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  reelsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  reelsSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+  },
+  reelsSeeAll: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0095F6',
+  },
+  reelsScrollContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+  },
+  reelCard: {
+    width: 112,
+    marginRight: 12,
+  },
+  reelCardThumb: {
+    width: 112,
+    height: 160,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  reelCardPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reelCardAvatarWrap: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#fff',
+    overflow: 'hidden',
+  },
+  reelCardAvatar: {
+    width: '100%',
+    height: '100%',
+  },
+  reelCardCaption: {
+    fontSize: 12,
+    color: '#333',
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  reelCardMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+    paddingHorizontal: 2,
+  },
+  reelCardLikes: {
+    fontSize: 11,
+    color: '#666',
   },
   motivationalRow: {
     paddingVertical: 10,

@@ -1,4 +1,5 @@
-import React, { createContext, useState, useCallback, useContext } from 'react';
+import React, { createContext, useState, useCallback, useContext, useEffect } from 'react';
+import { notificationService } from '../services/api';
 
 export type NotificationType = 'like' | 'comment' | 'follow';
 
@@ -9,63 +10,43 @@ export interface NotificationItem {
   avatar?: string;
   text: string;
   timeAgo: string;
-  timestamp: number; // for grouping (ms)
+  timestamp: number;
   read: boolean;
   postImage?: string;
   postId?: string;
 }
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: '1',
-    type: 'like',
-    username: 'trail_runner',
-    avatar: 'https://i.pravatar.cc/150?img=1',
-    text: 'liked your post',
-    timeAgo: '2m ago',
-    timestamp: Date.now() - 2 * 60 * 1000,
-    read: false,
-    postImage: 'https://images.unsplash.com/photo-1544966503-7cc75df67383?w=200',
-    postId: '1',
-  },
-  {
-    id: '2',
-    type: 'comment',
-    username: 'marathon_mike',
-    avatar: 'https://i.pravatar.cc/150?img=2',
-    text: 'commented: "Amazing run! 🔥"',
-    timeAgo: '1h ago',
-    timestamp: Date.now() - 60 * 60 * 1000,
-    read: false,
-    postId: '1',
-  },
-  {
-    id: '3',
-    type: 'follow',
-    username: 'bike_lover',
-    avatar: 'https://i.pravatar.cc/150?img=3',
-    text: 'started following you',
-    timeAgo: '3h ago',
-    timestamp: Date.now() - 3 * 60 * 60 * 1000,
-    read: true,
-  },
-  {
-    id: '4',
-    type: 'like',
-    username: 'jqalin',
-    avatar: 'https://i.pravatar.cc/150?img=4',
-    text: 'liked your post',
-    timeAgo: 'Yesterday',
-    timestamp: Date.now() - 25 * 60 * 60 * 1000,
-    read: true,
-    postImage: 'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=200',
-    postId: '2',
-  },
-];
+function updateTimeAgo(ts: number): string {
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 60) return 'Just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  if (sec < 172800) return 'Yesterday';
+  if (sec < 604800) return `${Math.floor(sec / 86400)}d ago`;
+  if (sec < 2592000) return `${Math.floor(sec / 604800)}w ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+function mapApiToItem(api: { id: string; type: NotificationType; username: string; avatar?: string; text: string; timestamp: number; read: boolean; postId?: string; postImage?: string }): NotificationItem {
+  return {
+    id: api.id,
+    type: api.type,
+    username: api.username,
+    avatar: api.avatar,
+    text: api.text,
+    timeAgo: updateTimeAgo(api.timestamp),
+    timestamp: api.timestamp,
+    read: api.read,
+    postId: api.postId,
+    postImage: api.postImage,
+  };
+}
 
 interface NotificationsContextType {
   notifications: NotificationItem[];
   unreadCount: number;
+  loading: boolean;
+  refreshNotifications: () => Promise<void>;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
   refreshTimeAgo: () => void;
@@ -74,20 +55,31 @@ interface NotificationsContextType {
 const NotificationsContext = createContext<NotificationsContextType | undefined>(undefined);
 
 export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const list = await notificationService.getNotifications();
+      setNotifications(list.map(mapApiToItem));
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+      setNotifications([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  const refreshNotifications = useCallback(async () => {
+    setLoading(true);
+    await loadNotifications();
+  }, [loadNotifications]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
-
-  const updateTimeAgo = (ts: number): string => {
-    const sec = Math.floor((Date.now() - ts) / 1000);
-    if (sec < 60) return 'Just now';
-    if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-    if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-    if (sec < 172800) return 'Yesterday';
-    if (sec < 604800) return `${Math.floor(sec / 86400)}d ago`;
-    if (sec < 2592000) return `${Math.floor(sec / 604800)}w ago`;
-    return new Date(ts).toLocaleDateString();
-  };
 
   const refreshTimeAgo = useCallback(() => {
     setNotifications((prev) =>
@@ -99,15 +91,19 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
+    notificationService.markAsRead(id).catch(() => {});
   }, []);
 
   const markAllAsRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    notificationService.markAllAsRead().catch(() => {});
   }, []);
 
   const value: NotificationsContextType = {
     notifications,
     unreadCount,
+    loading,
+    refreshNotifications,
     markAsRead,
     markAllAsRead,
     refreshTimeAgo,

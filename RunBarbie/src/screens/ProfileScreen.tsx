@@ -16,8 +16,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { Post, Reel } from '../types';
-import { userService } from '../services/api';
-import { mockDataService } from '../services/mockData';
+import { userService, reelService } from '../services/api';
 import { ProfileStackParamList } from '../navigation/types';
 
 type ProfileNav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileHome'>;
@@ -39,7 +38,7 @@ const ProfileScreen: React.FC = () => {
     try {
       const [postsData, reelsData] = await Promise.all([
         userService.getUserPosts(user._id),
-        mockDataService.getReels(),
+        reelService.getReels(),
       ]);
       setPosts(postsData);
       setReels(reelsData.filter((r) => r.userId === user._id));

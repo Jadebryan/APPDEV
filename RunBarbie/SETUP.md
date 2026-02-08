@@ -130,6 +130,15 @@ This will:
 - Clear cache: `expo start -c`
 - Reinstall dependencies: `rm -rf node_modules && npm install`
 
+### Android: App won't launch (`expo run:android`)
+
+1. **New Architecture** – Already set to `false` in `android/gradle.properties` (fixes many launch crashes).
+2. **Project name** – `android/settings.gradle` uses `RunBarbie` (no emoji) to avoid Gradle issues.
+3. **Run from project root** – Use: `cd RunBarbie` then `npx expo run:android`.
+4. **Path without spaces** – If it still fails, try moving the project to a path without spaces (e.g. `C:\Dev\RunBarbie`).
+5. **Android SDK** – Ensure Android Studio is installed and `ANDROID_HOME` is set; accept all SDK licenses: `sdkmanager --licenses`.
+6. **Metro first** – In one terminal run `npx expo start`, then in another run `npx expo run:android` so the bundle loads.
+
 ## Testing the App
 
 1. **Register** a new account

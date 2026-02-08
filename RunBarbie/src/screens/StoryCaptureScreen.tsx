@@ -10,15 +10,18 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { ActivityType } from '../types';
 import { useStories } from '../context/StoriesContext';
 import { useAuth } from '../context/AuthContext';
-import { postService } from '../services/api';
+import { useToast } from '../context/ToastContext';
+import { uploadService, storyService } from '../services/api';
 
 const ACTIVITY_OPTIONS: ActivityType[] = ['run', 'hike', 'cycle', 'walk', 'other'];
 
@@ -26,33 +29,38 @@ const StoryCaptureScreen: React.FC = () => {
   const navigation = useNavigation();
   const { addOrUpdateMyStory, stories } = useStories();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [activityType, setActivityType] = useState<ActivityType>('run');
   const [usedCaptions, setUsedCaptions] = useState<Set<string>>(new Set());
+  const [posting, setPosting] = useState(false);
 
-  // Hide bottom tabs when StoryCaptureScreen is open
+  // Hide bottom tabs when StoryCaptureScreen is open. Use a short delay so that when
+  // navigating from CreatePost → Story, we re-hide after CreatePost's cleanup runs.
+  const DEFAULT_TAB_BAR_STYLE = {
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#DBDBDB',
+    height: 50,
+    paddingBottom: 5,
+    paddingTop: 5,
+  };
   useFocusEffect(
     React.useCallback(() => {
       const parent = navigation.getParent();
-      if (parent) {
-        parent.setOptions({
-          tabBarStyle: { display: 'none' },
-        });
-      }
+      const tab = parent?.getParent?.();
+      const target = tab || parent;
+      const hideBar = () => {
+        if (target) target.setOptions({ tabBarStyle: { display: 'none' } });
+      };
+      hideBar();
+      const t = setTimeout(hideBar, 50);
 
       return () => {
-        if (parent) {
-          parent.setOptions({
-            tabBarStyle: {
-              backgroundColor: '#fff',
-              borderTopWidth: 1,
-              borderTopColor: '#DBDBDB',
-              height: 50,
-              paddingBottom: 5,
-              paddingTop: 5,
-            },
-          });
+        clearTimeout(t);
+        if (target) {
+          target.setOptions({ tabBarStyle: DEFAULT_TAB_BAR_STYLE });
         }
       };
     }, [navigation])
@@ -227,7 +235,7 @@ const StoryCaptureScreen: React.FC = () => {
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to open gallery. Please try again.');
+      showToast('Failed to open gallery. Please try again.', 'error');
     }
   };
 
@@ -246,10 +254,23 @@ const StoryCaptureScreen: React.FC = () => {
     }
   };
 
-  const handleShare = () => {
+  const handleShare = async () => {
     if (!imageUri) return;
-    addOrUpdateMyStory({ mediaUri: imageUri, caption, activityType });
-    navigation.goBack();
+    setPosting(true);
+    try {
+      let mediaUri = imageUri;
+      const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
+      const base64Image = `data:image/jpeg;base64,${base64}`;
+      mediaUri = await uploadService.uploadStoryImage(base64Image);
+      await storyService.createStory({ mediaUri, caption, activityType });
+      addOrUpdateMyStory({ mediaUri, caption, activityType });
+      showToast('Story shared!', 'success');
+      navigation.goBack();
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to share story', 'error');
+    } finally {
+      setPosting(false);
+    }
   };
 
   const hasImage = !!imageUri;
@@ -363,12 +384,16 @@ const StoryCaptureScreen: React.FC = () => {
 
         <View style={styles.footer} pointerEvents="box-none">
           <TouchableOpacity
-            style={[styles.shareButton, !hasImage && styles.shareButtonDisabled]}
-            activeOpacity={hasImage ? 0.9 : 1}
+            style={[styles.shareButton, (!hasImage || posting) && styles.shareButtonDisabled]}
+            activeOpacity={hasImage && !posting ? 0.9 : 1}
             onPress={handleShare}
-            disabled={!hasImage}
+            disabled={!hasImage || posting}
           >
-            <Text style={styles.shareText}>Share to story</Text>
+            {posting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.shareText}>Share to story</Text>
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

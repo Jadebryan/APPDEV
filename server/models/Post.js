@@ -29,6 +29,11 @@ const postSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
   }],
+  location: {
+    latitude: Number,
+    longitude: Number,
+    name: String,
+  },
 }, {
   timestamps: true,
 });

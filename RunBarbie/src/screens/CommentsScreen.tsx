@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,45 +9,55 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { FeedStackParamList } from '../navigation/types';
+import { postService, PostComment } from '../services/api';
+import { getTimeAgo } from '../utils/timeAgo';
 
 type CommentsRoute = RouteProp<FeedStackParamList, 'Comments'>;
-
-interface Comment {
-  id: string;
-  username: string;
-  text: string;
-  timeAgo: string;
-}
-
-const INITIAL_COMMENTS: Comment[] = [
-  { id: '1', username: 'trail_runner', text: 'Looks like such a fun route! 🌲', timeAgo: '1h' },
-  { id: '2', username: 'marathon_mike', text: 'Perfect tempo pace 🔥', timeAgo: '45m' },
-  { id: '3', username: 'bike_lover', text: 'Those shoes are sick 👟', timeAgo: '30m' },
-];
 
 const CommentsScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute<CommentsRoute>();
-  const { username, caption, image } = route.params;
-  const [comments, setComments] = useState<Comment[]>(INITIAL_COMMENTS);
+  const { postId, username, caption, image } = route.params;
+  const [comments, setComments] = useState<PostComment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
   const [text, setText] = useState('');
 
-  const handleAddComment = () => {
+  const loadComments = useCallback(async () => {
+    try {
+      setLoading(true);
+      const list = await postService.getComments(postId);
+      setComments(list);
+    } catch (error) {
+      console.error('Error loading comments:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [postId]);
+
+  useEffect(() => {
+    loadComments();
+  }, [loadComments]);
+
+  const handleAddComment = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    const newComment: Comment = {
-      id: `${Date.now()}`,
-      username: 'you',
-      text: trimmed,
-      timeAgo: 'Now',
-    };
-    setComments((prev) => [newComment, ...prev]);
-    setText('');
+    if (!trimmed || posting) return;
+    try {
+      setPosting(true);
+      const newComment = await postService.addComment(postId, trimmed);
+      setComments((prev) => [newComment, ...prev]);
+      setText('');
+    } catch (error) {
+      console.error('Error adding comment:', error);
+    } finally {
+      setPosting(false);
+    }
   };
 
   return (
@@ -76,28 +86,42 @@ const CommentsScreen: React.FC = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
       >
-        <FlatList
-          data={comments}
-          style={styles.flex}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          renderItem={({ item }) => (
-            <View style={styles.commentRow}>
-              <View style={styles.commentAvatar}>
-                <Ionicons name="person" size={18} color="#999" />
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="small" color="#FF69B5" />
+            <Text style={styles.loadingText}>Loading comments...</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={comments}
+            style={styles.flex}
+            keyExtractor={(item) => item._id}
+            contentContainerStyle={styles.listContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>No comments yet. Be the first!</Text>
+            }
+            renderItem={({ item }) => (
+              <View style={styles.commentRow}>
+                <View style={styles.commentAvatar}>
+                  {item.avatar ? (
+                    <Image source={{ uri: item.avatar }} style={styles.commentAvatarImg} />
+                  ) : (
+                    <Ionicons name="person" size={18} color="#999" />
+                  )}
+                </View>
+                <View style={styles.commentBody}>
+                  <Text style={styles.commentText}>
+                    <Text style={styles.commentUsername}>{item.username} </Text>
+                    {item.text}
+                  </Text>
+                  <Text style={styles.commentMeta}>{getTimeAgo(item.createdAt)}</Text>
+                </View>
               </View>
-              <View style={styles.commentBody}>
-                <Text style={styles.commentText}>
-                  <Text style={styles.commentUsername}>{item.username} </Text>
-                  {item.text}
-                </Text>
-                <Text style={styles.commentMeta}>{item.timeAgo}</Text>
-              </View>
-            </View>
-          )}
-        />
+            )}
+          />
+        )}
 
         <View style={styles.inputRow}>
           <View style={styles.inputAvatar}>
@@ -113,12 +137,12 @@ const CommentsScreen: React.FC = () => {
             textAlignVertical="top"
           />
           <TouchableOpacity
-            style={[styles.sendButton, !text.trim() && styles.sendButtonDisabled]}
+            style={[styles.sendButton, (!text.trim() || posting) && styles.sendButtonDisabled]}
             onPress={handleAddComment}
-            disabled={!text.trim()}
+            disabled={!text.trim() || posting}
             activeOpacity={0.8}
           >
-            <Text style={styles.sendText}>Post</Text>
+            <Text style={styles.sendText}>{posting ? '…' : 'Post'}</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -192,6 +216,22 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: '#666',
+  },
+  emptyText: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 24,
+  },
   commentAvatar: {
     width: 32,
     height: 32,
@@ -200,6 +240,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 8,
+    overflow: 'hidden',
+  },
+  commentAvatarImg: {
+    width: 32,
+    height: 32,
   },
   commentBody: {
     flex: 1,

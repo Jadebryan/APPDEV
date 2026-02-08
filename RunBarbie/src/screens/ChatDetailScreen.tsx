@@ -16,6 +16,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { Message } from '../types';
 import { chatService } from '../services/api';
 import { getTimeAgo } from '../utils/timeAgo';
@@ -29,6 +30,7 @@ const ChatDetailScreen: React.FC = () => {
   const route = useRoute<Route>();
   const { conversationId, otherUser } = route.params;
   const { user: currentUser } = useAuth();
+  const { showToast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
@@ -63,6 +65,7 @@ const ChatDetailScreen: React.FC = () => {
     } catch (e) {
       console.error('Send message error', e);
       setInputText(text);
+      showToast('Failed to send. Try again.', 'error');
     } finally {
       setSending(false);
     }
@@ -89,7 +92,24 @@ const ChatDetailScreen: React.FC = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Ionicons name="chevron-back" size={28} color="#000" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.headerUser} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.headerUser}
+          activeOpacity={0.8}
+          onPress={() => {
+            const root = navigation.getParent()?.getParent();
+            if (root && 'navigate' in root) {
+              (root as any).navigate('FeedStack', {
+                screen: 'UserProfile',
+                params: {
+                  userId: otherUser._id,
+                  username: otherUser.username,
+                  avatar: otherUser.avatar,
+                  bio: otherUser.bio,
+                },
+              });
+            }
+          }}
+        >
           {otherUser.avatar ? (
             <Image source={{ uri: otherUser.avatar }} style={styles.headerAvatar} />
           ) : (
@@ -104,10 +124,16 @@ const ChatDetailScreen: React.FC = () => {
             <Text style={styles.headerStatus}>Active now</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.headerIcon}>
+        <TouchableOpacity
+          style={styles.headerIcon}
+          onPress={() => navigation.navigate('VideoCall', { otherUser })}
+        >
           <Ionicons name="videocam-outline" size={24} color="#000" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.headerIcon}>
+        <TouchableOpacity
+          style={styles.headerIcon}
+          onPress={() => navigation.navigate('ChatInfo', { otherUser })}
+        >
           <Ionicons name="information-circle-outline" size={24} color="#000" />
         </TouchableOpacity>
       </View>

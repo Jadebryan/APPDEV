@@ -2,6 +2,7 @@
   "expo": {
     "name": "Run Barbie🎀",
     "slug": "run-barbie",
+    "scheme": "runbarbie",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -44,7 +45,8 @@
           ]
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-web-browser"
     ]
   }
 }

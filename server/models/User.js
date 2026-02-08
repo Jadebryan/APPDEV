@@ -11,7 +11,8 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true,
+    required: function() { return !this.facebookId && !this.googleId; },
+    default: null,
   },
   username: {
     type: String,
@@ -19,6 +20,8 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true,
   },
+  facebookId: { type: String, default: null, sparse: true },
+  googleId: { type: String, default: null, sparse: true },
   bio: {
     type: String,
     default: '',
@@ -35,14 +38,40 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
   }],
+  savedPosts: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Post',
+  }],
+  goals: [{
+    postId: { type: mongoose.Schema.Types.ObjectId, ref: 'Post' },
+    title: { type: String, required: true },
+    targetDistance: Number,
+    targetDuration: Number,
+    createdAt: { type: Date, default: Date.now },
+  }],
+  savedRoutes: [{
+    postId: { type: mongoose.Schema.Types.ObjectId, ref: 'Post' },
+    name: String,
+    latitude: Number,
+    longitude: Number,
+    createdAt: { type: Date, default: Date.now },
+  }],
+  isVerified: {
+    type: Boolean,
+    default: false,
+  },
+  verificationCode: { type: String, default: null },
+  verificationCodeExpires: { type: Date, default: null },
+  resetPasswordCode: { type: String, default: null },
+  resetPasswordExpires: { type: Date, default: null },
 }, {
   timestamps: true,
 });
 
-// Hash password before saving
+// Hash password before saving (8 rounds = faster registration, still secure)
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10);
+  if (!this.isModified('password') || !this.password) return next();
+  this.password = await bcrypt.hash(this.password, 8);
   next();
 });
 

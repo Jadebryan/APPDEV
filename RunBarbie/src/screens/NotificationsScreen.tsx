@@ -1,17 +1,22 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   Image,
   SectionList,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useNotifications, NotificationItem, NotificationType } from '../context/NotificationsContext';
+import { FeedStackParamList } from '../navigation/types';
+
+type NotificationsNav = NativeStackNavigationProp<FeedStackParamList, 'Notifications'>;
 
 type Section = { title: string; data: NotificationItem[] };
 
@@ -25,8 +30,15 @@ const getSectionTitle = (timestamp: number): string => {
 };
 
 const NotificationsScreen: React.FC = () => {
-  const navigation = useNavigation();
-  const { notifications, unreadCount, markAsRead, markAllAsRead, refreshTimeAgo } = useNotifications();
+  const navigation = useNavigation<NotificationsNav>();
+  const { notifications, unreadCount, loading, refreshNotifications, markAsRead, markAllAsRead, refreshTimeAgo } = useNotifications();
+  const [markAllPressed, setMarkAllPressed] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refreshNotifications();
+    setRefreshing(false);
+  };
 
   useEffect(() => {
     refreshTimeAgo();
@@ -77,7 +89,16 @@ const NotificationsScreen: React.FC = () => {
 
   const handlePressItem = (item: NotificationItem) => {
     if (!item.read) markAsRead(item.id);
-    // TODO: navigate to post or profile when wired
+    if (item.postId) {
+      navigation.navigate('Comments', {
+        postId: item.postId,
+        username: item.username,
+        caption: item.text || '',
+        image: item.postImage || 'https://images.unsplash.com/photo-1544966503-7cc75df67383?w=400',
+      });
+    } else if (item.type === 'follow') {
+      navigation.navigate('FeedHome');
+    }
   };
 
   const renderItem = ({ item }: { item: NotificationItem }) => (
@@ -120,16 +141,27 @@ const NotificationsScreen: React.FC = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.title}>Notifications</Text>
+        <Text style={styles.title} pointerEvents="none">Notifications</Text>
         {unreadCount > 0 ? (
-          <TouchableOpacity onPress={markAllAsRead} style={styles.markAllWrap}>
-            <Text style={styles.markAll}>Mark all as read</Text>
+          <TouchableOpacity
+            onPress={() => { setMarkAllPressed(true); markAllAsRead(); }}
+            onPressIn={() => setMarkAllPressed(true)}
+            onPressOut={() => setMarkAllPressed(false)}
+            style={styles.markAllWrap}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.markAll, markAllPressed && styles.markAllPressed]}>Mark all as read</Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.headerRight} />
         )}
       </View>
-      {sections.length === 0 ? (
+      {loading && !refreshing ? (
+        <View style={styles.empty}>
+          <ActivityIndicator size="large" color="#FF69B5" />
+          <Text style={styles.emptyText}>Loading notifications...</Text>
+        </View>
+      ) : sections.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="heart-outline" size={48} color="#DBDBDB" />
           <Text style={styles.emptyText}>No notifications yet</Text>
@@ -142,6 +174,9 @@ const NotificationsScreen: React.FC = () => {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF69B5" />
+          }
         />
       )}
     </SafeAreaView>
@@ -161,27 +196,38 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#DBDBDB',
+    position: 'relative',
   },
   backButton: {
     padding: 8,
     marginLeft: 4,
+    zIndex: 1,
   },
   title: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
+    textAlign: 'center',
   },
   markAllWrap: {
-    padding: 8,
+    padding: 4,
     marginRight: 4,
+    zIndex: 1,
   },
   markAll: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#FF69B4',
     fontWeight: '600',
   },
+  markAllPressed: {
+    color: '#999',
+  },
   headerRight: {
-    width: 100,
+    width: 80,
+    zIndex: 1,
   },
   list: {
     paddingVertical: 8,

@@ -12,12 +12,13 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useAuth } from '../context/AuthContext';
-import { reelService } from '../services/api';
+import { useToast } from '../context/ToastContext';
+import { reelService, uploadService } from '../services/api';
 import { ActivityType } from '../types';
 
 const ACTIVITY_TYPES: ActivityType[] = ['run', 'hike', 'cycle', 'walk', 'other'];
@@ -32,11 +33,42 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
 const CreateReelScreen: React.FC = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [activityType, setActivityType] = useState<ActivityType>('run');
   const [posting, setPosting] = useState(false);
+
+  // Hide bottom tabs when CreateReelScreen is open. Use a short delay so that when
+  // navigating from CreatePost → Reel, we re-hide after CreatePost's cleanup runs.
+  const DEFAULT_TAB_BAR_STYLE = {
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#DBDBDB',
+    height: 50,
+    paddingBottom: 5,
+    paddingTop: 5,
+  };
+  useFocusEffect(
+    React.useCallback(() => {
+      const parent = navigation.getParent();
+      const tab = parent?.getParent?.();
+      const target = tab || parent;
+      const hideBar = () => {
+        if (target) target.setOptions({ tabBarStyle: { display: 'none' } });
+      };
+      hideBar();
+      const t = setTimeout(hideBar, 50);
+
+      return () => {
+        clearTimeout(t);
+        if (target) {
+          target.setOptions({ tabBarStyle: DEFAULT_TAB_BAR_STYLE });
+        }
+      };
+    }, [navigation])
+  );
 
   // Caption generation – same parts as post/story (runners, hikers, trail runners)
   const captionParts = useMemo(
@@ -137,7 +169,7 @@ const CreateReelScreen: React.FC = () => {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ['videos'],
       allowsEditing: true,
       aspect: [9, 16],
       quality: 0.8,
@@ -152,16 +184,17 @@ const CreateReelScreen: React.FC = () => {
     if (!videoUri || !user) return;
     setPosting(true);
     try {
+      const videoUrl = await uploadService.uploadVideo(videoUri);
+
       await reelService.createReel({
-        videoUri,
+        videoUri: videoUrl,
         caption: caption.trim() || 'No caption',
         activityType,
       });
-      Alert.alert('Reel posted', 'Your reel is live!', [
-        { text: 'OK', onPress: () => navigation.goBack() },
-      ]);
+      showToast('Your reel is live!', 'success');
+      navigation.goBack();
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Could not post reel. Try again.');
+      showToast(e?.message || 'Could not post reel. Try again.', 'error');
     } finally {
       setPosting(false);
     }

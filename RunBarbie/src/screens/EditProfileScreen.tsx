@@ -16,8 +16,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useAuth } from '../context/AuthContext';
-import { userService } from '../services/api';
+import { useToast } from '../context/ToastContext';
+import { userService, uploadService } from '../services/api';
 import { ProfileStackParamList } from '../navigation/types';
 
 type Route = RouteProp<ProfileStackParamList, 'EditProfile'>;
@@ -26,6 +28,7 @@ const EditProfileScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute<Route>();
   const { user, updateUser } = useAuth();
+  const { showToast } = useToast();
   const [username, setUsername] = useState(user?.username ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
   const [avatar, setAvatar] = useState(user?.avatar ?? '');
@@ -46,7 +49,7 @@ const EditProfileScreen: React.FC = () => {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -60,20 +63,33 @@ const EditProfileScreen: React.FC = () => {
     if (!user) return;
     const trimmedUsername = username.trim();
     if (!trimmedUsername) {
-      Alert.alert('Error', 'Username is required.');
+      showToast('Username is required.', 'error');
       return;
     }
     setSaving(true);
     try {
+      let avatarUrl = avatar || undefined;
+      if (avatar && (avatar.startsWith('file://') || avatar.startsWith('content://'))) {
+        try {
+          const base64 = await FileSystem.readAsStringAsync(avatar, { encoding: 'base64' });
+          const base64Image = `data:image/jpeg;base64,${base64}`;
+          avatarUrl = await uploadService.uploadImage(base64Image);
+        } catch (uploadErr) {
+          showToast('Could not upload photo. Try again.', 'error');
+          setSaving(false);
+          return;
+        }
+      }
       const updated = await userService.updateProfile({
         username: trimmedUsername,
         bio: bio.trim() || undefined,
-        avatar: avatar || undefined,
+        avatar: avatarUrl,
       });
       await updateUser(updated);
+      showToast('Profile saved successfully', 'success');
       navigation.goBack();
     } catch (e) {
-      Alert.alert('Error', 'Could not save profile. Try again.');
+      showToast('Could not save profile. Try again.', 'error');
     } finally {
       setSaving(false);
     }

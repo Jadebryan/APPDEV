@@ -9,9 +9,9 @@ import {
   Animated,
   TouchableWithoutFeedback,
   Share,
-  Alert,
   Modal,
   Pressable,
+  Linking,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Post } from '../types';
@@ -19,11 +19,17 @@ import { getTimeAgo } from '../utils/timeAgo';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { FeedStackParamList } from '../navigation/types';
+import { useToast } from '../context/ToastContext';
+import { userService } from '../services/api';
 
 interface PostCardProps {
   post: Post;
   onLike: (postId: string) => void;
   currentUserId?: string;
+  saved?: boolean;
+  onBookmark?: (postId: string) => void;
+  onHidePost?: (postId: string) => void;
+  onMuteUser?: (userId: string) => void;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -42,21 +48,32 @@ type PostCardNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
 /**
  * PostCard - Instagram-style post with activity badge, timestamp, double-tap like, comment count, shadow
  */
-const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
+const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved: savedProp = false, onBookmark, onHidePost, onMuteUser }) => {
   const [currentImageIndex] = useState(0);
   const [showHeart, setShowHeart] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [savedLocal, setSavedLocal] = useState(false);
+  const saved = onBookmark ? savedProp : savedLocal;
+  const [inspired, setInspired] = useState(false);
   const [optionsVisible, setOptionsVisible] = useState(false);
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
   const lastTap = useRef(0);
   const isLiked = currentUserId ? post.likes.includes(currentUserId) : false;
   const navigation = useNavigation<PostCardNav>();
+  const { showToast } = useToast();
+
+  const user = post.user ?? (post as { userId?: { username?: string; avatar?: string; bio?: string } }).userId;
+  const safeUser = user ? { username: user.username ?? 'Unknown', avatar: user.avatar ?? '', bio: user.bio ?? '' } : { username: 'Unknown', avatar: '', bio: '' };
+
+  const closeAndToast = (message: string, type: 'success' | 'info' = 'info') => {
+    setOptionsVisible(false);
+    showToast(message, type);
+  };
 
   const totalImages = 1;
   const showCarouselIndicator = totalImages > 1;
   const activityConfig = ACTIVITY_CONFIG[post.activityType] || ACTIVITY_CONFIG.other;
-  const mockCommentCount = 4; // Stable mock for UI
+  const commentCount = post.commentCount ?? 0;
 
   const handleImagePress = () => {
     const now = Date.now();
@@ -97,7 +114,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
   const handleOpenComments = () => {
     navigation.navigate('Comments', {
       postId: post._id,
-      username: post.user.username,
+      username: safeUser.username,
       caption: post.caption,
       image: post.image,
     });
@@ -106,7 +123,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Run Barbie🎀 - ${post.user.username} • ${post.caption}`,
+        message: `Run Barbie🎀 - ${safeUser.username} • ${post.caption}`,
       });
     } catch {
       // ignore
@@ -114,8 +131,75 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
   };
 
   const handleToggleSave = () => {
-    setSaved((prev) => !prev);
+    if (onBookmark) {
+      onBookmark(post._id);
+      setOptionsVisible(false);
+      showToast(saved ? 'Run removed from saved' : 'Run saved', 'success');
+    } else {
+      const next = !saved;
+      setSavedLocal(next);
+      setOptionsVisible(false);
+      showToast(next ? 'Run saved' : 'Run removed from saved', 'success');
+    }
+  };
+
+  const handleSetGoal = () => {
     setOptionsVisible(false);
+    navigation.navigate('AddGoal', { post });
+  };
+  const handleMarkInspiration = () => {
+    if (onBookmark) onBookmark(post._id);
+    setInspired(true);
+    setOptionsVisible(false);
+    showToast('Saved as inspiration', 'success');
+    navigation.navigate('SavedPosts');
+  };
+  const handleMuteAthlete = () => {
+    onMuteUser?.(post.userId);
+    closeAndToast(`Muted @${safeUser.username}`, 'info');
+  };
+  const handleSaveRouteIdea = async () => {
+    if (!post.location || post.location.latitude == null || post.location.longitude == null) {
+      closeAndToast('This post has no location to save', 'info');
+      return;
+    }
+    try {
+      await userService.addSavedRoute({
+        postId: post._id,
+        name: post.location?.name,
+        latitude: post.location?.latitude,
+        longitude: post.location?.longitude,
+      });
+      setOptionsVisible(false);
+      showToast('Route idea saved', 'success');
+      navigation.navigate('SavedRoutes');
+    } catch (e) {
+      closeAndToast(e instanceof Error ? e.message : 'Could not save route', 'info');
+    }
+  };
+  const handleViewProfile = () => {
+    setOptionsVisible(false);
+    navigation.navigate('UserProfile', {
+      userId: post.userId,
+      username: safeUser.username,
+      avatar: safeUser.avatar,
+      bio: safeUser.bio,
+    });
+  };
+  const handleHidePost = () => {
+    onHidePost?.(post._id);
+    closeAndToast('Post hidden', 'info');
+  };
+  const handleReport = () => {
+    setOptionsVisible(false);
+    navigation.navigate('Report', { postId: post._id });
+  };
+
+  const handleViewOnMap = () => {
+    if (!post.location) return;
+    const { latitude, longitude } = post.location;
+    const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
+    Linking.openURL(url).catch(() => {});
   };
 
   const handleMenu = () => {
@@ -127,15 +211,15 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
       {/* Header: Profile, username, activity badge, timestamp, menu */}
       <View style={styles.header}>
         <View style={styles.userInfo}>
-          {post.user.avatar ? (
-            <Image source={{ uri: post.user.avatar }} style={styles.profilePicture} />
+          {safeUser.avatar ? (
+            <Image source={{ uri: safeUser.avatar }} style={styles.profilePicture} />
           ) : (
             <View style={[styles.profilePicture, styles.profilePlaceholder]}>
               <Ionicons name="person" size={20} color="#999" />
             </View>
           )}
           <View style={styles.headerTextRow}>
-            <Text style={styles.username}>{post.user.username}</Text>
+            <Text style={styles.username}>{safeUser.username}</Text>
             <View style={[styles.activityBadge, { backgroundColor: `${activityConfig.color}20` }]}>
               <MaterialCommunityIcons name={activityConfig.icon} size={12} color={activityConfig.color} />
               <Text style={[styles.activityBadgeText, { color: activityConfig.color }]}>{activityConfig.label}</Text>
@@ -217,15 +301,15 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
 
       <View style={styles.captionSection}>
         <Text style={styles.caption}>
-          <Text style={styles.captionUsername}>{post.user.username}</Text>{' '}
+          <Text style={styles.captionUsername}>{safeUser.username}</Text>{' '}
           {post.caption}
         </Text>
       </View>
 
-      {/* Comment count - mock */}
-      {mockCommentCount > 0 ? (
+      {/* Comment count – real from API */}
+      {commentCount > 0 ? (
         <TouchableOpacity style={styles.commentsLink} onPress={handleOpenComments}>
-          <Text style={styles.commentsLinkText}>View all {mockCommentCount} comments</Text>
+          <Text style={styles.commentsLinkText}>View all {commentCount} comments</Text>
         </TouchableOpacity>
       ) : (
         <TouchableOpacity style={styles.commentsLink} onPress={handleOpenComments}>
@@ -238,6 +322,15 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
           {post.distance && <Text style={styles.statText}>📏 {post.distance} km</Text>}
           {post.duration && <Text style={styles.statText}>⏱️ {post.duration} min</Text>}
         </View>
+      )}
+
+      {post.location && (
+        <TouchableOpacity style={styles.locationSection} onPress={handleViewOnMap} activeOpacity={0.7}>
+          <Ionicons name="location" size={16} color="#0095F6" style={styles.locationIcon} />
+          <Text style={styles.locationName} numberOfLines={1}>{post.location.name ?? 'Pinned location'}</Text>
+          <Text style={styles.viewOnMapText}>View on map</Text>
+          <Ionicons name="open-outline" size={14} color="#0095F6" />
+        </TouchableOpacity>
       )}
 
       {/* Bottom sheet-style options, Instagram-like */}
@@ -271,6 +364,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
                 onPress={() => {
                   setOptionsVisible(false);
                   handleShare();
+                  showToast('Share opened', 'info');
                 }}
                 activeOpacity={0.8}
               >
@@ -280,13 +374,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
 
               <TouchableOpacity
                 style={styles.sheetIconCard}
-                onPress={() => {
-                  setOptionsVisible(false);
-                  Alert.alert(
-                    'Add to goals',
-                    'Soon you\'ll be able to add this run to a training goal.',
-                  );
-                }}
+                onPress={handleSetGoal}
                 activeOpacity={0.8}
               >
                 <Ionicons name="flag-outline" size={22} color="#000" />
@@ -295,45 +383,35 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId }) => {
             </View>
 
             <View style={styles.sheetList}>
-              <TouchableOpacity style={styles.sheetItem} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.sheetItem} onPress={handleMarkInspiration} activeOpacity={0.8}>
                 <Ionicons name="star-outline" size={18} color="#000" style={styles.sheetItemIcon} />
                 <Text style={styles.sheetItemText}>Mark as inspiration</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.sheetItem} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.sheetItem} onPress={handleMuteAthlete} activeOpacity={0.8}>
                 <Ionicons name="notifications-off-outline" size={18} color="#000" style={styles.sheetItemIcon} />
                 <Text style={styles.sheetItemText}>Mute this athlete</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.sheetItem} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.sheetItem} onPress={handleSaveRouteIdea} activeOpacity={0.8}>
                 <Ionicons name="trail-sign-outline" size={18} color="#000" style={styles.sheetItemIcon} />
                 <Text style={styles.sheetItemText}>Save route idea</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.sheetItem} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.sheetItem} onPress={handleViewProfile} activeOpacity={0.8}>
                 <Ionicons name="information-circle-outline" size={18} color="#000" style={styles.sheetItemIcon} />
                 <Text style={styles.sheetItemText}>View athlete profile</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.sheetItem} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.sheetItem} onPress={handleHidePost} activeOpacity={0.8}>
                 <Ionicons name="eye-off-outline" size={18} color="#000" style={styles.sheetItemIcon} />
                 <Text style={styles.sheetItemText}>Hide this post</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.sheetItem} activeOpacity={0.8}>
-                <Ionicons name="person-circle-outline" size={18} color="#000" style={styles.sheetItemIcon} />
-                <Text style={styles.sheetItemText}>About this athlete</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.sheetItem, styles.sheetItemDestructive]}
                 activeOpacity={0.8}
-                onPress={() => {
-                  setOptionsVisible(false);
-                  Alert.alert('Report trail / content', 'Thanks, we\'ll review this activity.', [
-                    { text: 'OK' },
-                  ]);
-                }}
+                onPress={handleReport}
               >
                 <Ionicons name="alert-circle-outline" size={18} color="#FF3B30" style={styles.sheetItemIcon} />
                 <Text style={[styles.sheetItemText, styles.sheetItemTextDestructive]}>Report</Text>
@@ -498,6 +576,28 @@ const styles = StyleSheet.create({
   statText: {
     fontSize: 12,
     color: '#666',
+  },
+  locationSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+  locationIcon: {
+    marginRight: 6,
+  },
+  locationName: {
+    flex: 1,
+    fontSize: 13,
+    color: '#0095F6',
+    fontWeight: '500',
+  },
+  viewOnMapText: {
+    fontSize: 13,
+    color: '#0095F6',
+    fontWeight: '600',
+    marginRight: 4,
   },
   sheetBackdrop: {
     flex: 1,

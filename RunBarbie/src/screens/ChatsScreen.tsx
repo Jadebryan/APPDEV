@@ -12,9 +12,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { useToast } from '../context/ToastContext';
 import { Conversation, User } from '../types';
 import { chatService, searchService } from '../services/api';
 import { getTimeAgo } from '../utils/timeAgo';
@@ -24,6 +25,7 @@ type Nav = NativeStackNavigationProp<ChatsStackParamList, 'ChatsList'>;
 
 const ChatsScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const { showToast } = useToast();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeUsers, setActiveUsers] = useState<User[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<User[]>([]);
@@ -64,12 +66,20 @@ const ChatsScreen: React.FC = () => {
   useEffect(() => {
     loadConversations();
     loadActiveUsers();
-  }, [loadConversations, loadActiveUsers]);
+    loadSuggestedUsers();
+  }, [loadConversations, loadActiveUsers, loadSuggestedUsers]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations();
+    }, [loadConversations])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
     loadConversations();
     loadActiveUsers();
+    loadSuggestedUsers();
   };
 
   const filtered = searchQuery.trim()
@@ -90,12 +100,16 @@ const ChatsScreen: React.FC = () => {
       navigation.navigate('ChatDetail', { conversationId: conv._id, otherUser: conv.participant });
     } catch (e) {
       console.error('Open chat error', e);
+      showToast('Could not start conversation. Try again.', 'error');
     }
   };
 
   const renderConversation = ({ item }: { item: Conversation }) => {
     const isFromThem = item.lastMessage.senderId === item.participant._id;
-    const preview = isFromThem ? item.lastMessage.text : `You: ${item.lastMessage.text}`;
+    const hasText = (item.lastMessage.text || '').trim().length > 0;
+    const preview = hasText
+      ? (isFromThem ? item.lastMessage.text : `You: ${item.lastMessage.text}`)
+      : 'No messages yet. Say hi! 👋';
     return (
       <TouchableOpacity
         style={styles.convRow}

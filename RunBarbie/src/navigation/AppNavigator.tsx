@@ -7,6 +7,9 @@ import { View, Image, StyleSheet, ActivityIndicator } from 'react-native';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
+import ResetPasswordScreen from '../screens/ResetPasswordScreen';
+import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import FeedScreen from '../screens/FeedScreen';
 import CreatePostScreen from '../screens/CreatePostScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
@@ -17,10 +20,22 @@ import ProfileScreen from '../screens/ProfileScreen';
 import SearchScreen from '../screens/SearchScreen';
 import ChatsScreen from '../screens/ChatsScreen';
 import ChatDetailScreen from '../screens/ChatDetailScreen';
+import ChatInfoScreen from '../screens/ChatInfoScreen';
+import VideoCallScreen from '../screens/VideoCallScreen';
 import { useAuth } from '../context/AuthContext';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import ProfileMenuScreen from '../screens/ProfileMenuScreen';
+import NotificationsSettingsScreen from '../screens/NotificationsSettingsScreen';
+import SafetySettingsScreen from '../screens/SafetySettingsScreen';
+import ConnectedAppsScreen from '../screens/ConnectedAppsScreen';
+import HelpFeedbackScreen from '../screens/HelpFeedbackScreen';
 import CreateReelScreen from '../screens/CreateReelScreen';
+import UserProfileScreen from '../screens/UserProfileScreen';
+import AddGoalScreen from '../screens/AddGoalScreen';
+import GoalsScreen from '../screens/GoalsScreen';
+import SavedPostsScreen from '../screens/SavedPostsScreen';
+import SavedRoutesScreen from '../screens/SavedRoutesScreen';
+import ReportScreen from '../screens/ReportScreen';
 import { RootStackParamList, MainTabParamList, FeedStackParamList, ChatsStackParamList, ProfileStackParamList, ReelsStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -40,6 +55,12 @@ const FeedStackNavigator = () => (
     <FeedStack.Screen name="Notifications" component={NotificationsScreen} />
     <FeedStack.Screen name="StoryCapture" component={StoryCaptureScreen} />
     <FeedStack.Screen name="Comments" component={CommentsScreen} />
+    <FeedStack.Screen name="UserProfile" component={UserProfileScreen} />
+    <FeedStack.Screen name="AddGoal" component={AddGoalScreen} />
+    <FeedStack.Screen name="Goals" component={GoalsScreen} />
+    <FeedStack.Screen name="SavedPosts" component={SavedPostsScreen} />
+    <FeedStack.Screen name="SavedRoutes" component={SavedRoutesScreen} />
+    <FeedStack.Screen name="Report" component={ReportScreen} />
   </FeedStack.Navigator>
 );
 
@@ -51,6 +72,9 @@ const ChatsStackNavigator = () => (
   <ChatsStack.Navigator screenOptions={{ headerShown: false }}>
     <ChatsStack.Screen name="ChatsList" component={ChatsScreen} />
     <ChatsStack.Screen name="ChatDetail" component={ChatDetailScreen} />
+    <ChatsStack.Screen name="ChatInfo" component={ChatInfoScreen} />
+    <ChatsStack.Screen name="VideoCall" component={VideoCallScreen} />
+    <ChatsStack.Screen name="UserProfile" component={UserProfileScreen} />
   </ChatsStack.Navigator>
 );
 
@@ -59,6 +83,10 @@ const ProfileStackNavigator = () => (
     <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} />
     <ProfileStack.Screen name="ProfileMenu" component={ProfileMenuScreen} />
     <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
+    <ProfileStack.Screen name="NotificationsSettings" component={NotificationsSettingsScreen} />
+    <ProfileStack.Screen name="SafetySettings" component={SafetySettingsScreen} />
+    <ProfileStack.Screen name="ConnectedApps" component={ConnectedAppsScreen} />
+    <ProfileStack.Screen name="HelpFeedback" component={HelpFeedbackScreen} />
   </ProfileStack.Navigator>
 );
 
@@ -74,12 +102,34 @@ const ReelsStackNavigator = () => (
  * 5 icons: Home (filled when active), Reels, Chats, Search, Profile (circular avatar)
  * White background with subtle top border
  */
+const DEFAULT_TAB_BAR_STYLE = {
+  backgroundColor: '#fff',
+  borderTopWidth: 1,
+  borderTopColor: '#DBDBDB',
+  height: 50,
+  paddingBottom: 5,
+  paddingTop: 5,
+};
+
 const MainTabs = () => {
   const { user } = useAuth();
 
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
+      screenOptions={({ route, navigation }) => {
+        const state = navigation.getState();
+        const focusedIndex = state?.index ?? 0;
+        const focusedRoute = state?.routes?.[focusedIndex];
+        const nestedState = focusedRoute?.state as { routes?: { name: string }[]; index?: number } | undefined;
+        const nestedRoutes = nestedState?.routes;
+        const nestedIndex = nestedState?.index ?? 0;
+        const currentScreenName = nestedRoutes?.[nestedIndex]?.name;
+        const hideTabBar =
+          (focusedRoute?.name === 'FeedStack' && (currentScreenName === 'StoryCapture' || currentScreenName === 'CreatePost')) ||
+          (focusedRoute?.name === 'Reels' && currentScreenName === 'CreateReel');
+
+        return {
+        tabBarStyle: hideTabBar ? { display: 'none' } : DEFAULT_TAB_BAR_STYLE,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap;
 
@@ -127,17 +177,10 @@ const MainTabs = () => {
         },
         tabBarActiveTintColor: '#000',
         tabBarInactiveTintColor: '#000',
-        tabBarStyle: {
-          backgroundColor: '#fff',
-          borderTopWidth: 1,
-          borderTopColor: '#DBDBDB',
-          height: 50,
-          paddingBottom: 5,
-          paddingTop: 5,
-        },
         tabBarShowLabel: false,
         headerShown: false,
-      })}
+      };
+      }}
     >
       <Tab.Screen name="FeedStack" component={FeedStackNavigator} options={{ title: 'Feed' }} />
       <Tab.Screen name="Reels" component={ReelsStackNavigator} options={{ title: 'Reels' }} />
@@ -200,6 +243,9 @@ const AppNavigator = () => {
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+            <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
           </>
         )}
       </Stack.Navigator>

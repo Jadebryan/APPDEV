@@ -8,7 +8,14 @@ export interface User {
   avatar?: string;
   followers: string[];
   following: string[];
+  savedPosts?: string[]; // post IDs the user has bookmarked
   createdAt: string;
+}
+
+export interface PostLocation {
+  latitude: number;
+  longitude: number;
+  name?: string; // optional place name
 }
 
 export interface Post {
@@ -21,6 +28,8 @@ export interface Post {
   distance?: number; // in km
   duration?: number; // in minutes
   likes: string[]; // array of user IDs who liked
+  commentCount?: number;
+  location?: PostLocation; // pinned location for map
   createdAt: string;
 }
 
@@ -29,12 +38,19 @@ export interface AuthResponse {
   user: User;
 }
 
+/** Returned by register when email verification is required (real API). */
+export interface RegisterVerificationResponse {
+  message: string;
+  email: string;
+}
+
 export interface CreatePostData {
   image: string;
   caption: string;
   activityType: ActivityType;
   distance?: number;
   duration?: number;
+  location?: PostLocation;
 }
 
 export interface Reel {
@@ -46,6 +62,7 @@ export interface Reel {
   activityType?: ActivityType;
   likes: string[];
   commentCount?: number;
+  duration?: number; // video length in seconds
   createdAt: string;
 }
 

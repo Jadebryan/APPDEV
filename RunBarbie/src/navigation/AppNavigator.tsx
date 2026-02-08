@@ -36,6 +36,8 @@ import GoalsScreen from '../screens/GoalsScreen';
 import SavedPostsScreen from '../screens/SavedPostsScreen';
 import SavedRoutesScreen from '../screens/SavedRoutesScreen';
 import ReportScreen from '../screens/ReportScreen';
+import SavedReelsScreen from '../screens/SavedReelsScreen';
+import ReportReelScreen from '../screens/ReportReelScreen';
 import { RootStackParamList, MainTabParamList, FeedStackParamList, ChatsStackParamList, ProfileStackParamList, ReelsStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -94,6 +96,8 @@ const ReelsStackNavigator = () => (
   <ReelsStack.Navigator screenOptions={{ headerShown: false }}>
     <ReelsStack.Screen name="ReelsHome" component={ReelsScreen} />
     <ReelsStack.Screen name="CreateReel" component={CreateReelScreen} />
+    <ReelsStack.Screen name="SavedReels" component={SavedReelsScreen} />
+    <ReelsStack.Screen name="ReportReel" component={ReportReelScreen} />
   </ReelsStack.Navigator>
 );
 

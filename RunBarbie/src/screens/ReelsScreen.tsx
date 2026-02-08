@@ -277,7 +277,7 @@ const ReelsScreen: React.FC = () => {
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const route = useRoute<{ params?: { initialReelId?: string } }>();
+  const route = useRoute<{ params?: { initialReelId?: string; reportedReelId?: string } }>();
   const isLandscape = SCREEN_WIDTH > SCREEN_HEIGHT;
   const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -335,6 +335,25 @@ const ReelsScreen: React.FC = () => {
       setFollowingIds(prev => new Set([...prev, ...user.following]));
     }
   }, [user?.following]);
+
+  // Load saved reel IDs when user is present
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    userService.getSavedReels().then(list => {
+      if (!cancelled) setSavedReelIds(new Set(list.map(r => r._id)));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [user]);
+
+  // When returning from ReportReel with reportedReelId, hide that reel
+  const reportedReelId = route?.params?.reportedReelId;
+  useEffect(() => {
+    if (reportedReelId) {
+      setReportedReelIds(prev => new Set(prev).add(reportedReelId));
+      (navigation as any).setParams?.({ reportedReelId: undefined });
+    }
+  }, [reportedReelId, navigation]);
 
   // When opened from Profile with initialReelId, scroll to that reel
   const initialReelId = route?.params?.initialReelId;
@@ -571,26 +590,43 @@ const ReelsScreen: React.FC = () => {
     setSelectedReelForMore(null);
   }, []);
 
-  const handleSaveReel = useCallback(() => {
-    if (!selectedReelForMore) return;
+  const handleSaveReel = useCallback(async () => {
+    if (!selectedReelForMore || !user) return;
     const id = selectedReelForMore._id;
     const wasSaved = savedReelIds.has(id);
-    setSavedReelIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    handleCloseMoreSheet();
-    showToast(wasSaved ? 'Removed from saved' : 'Reel saved to your list', 'success');
-  }, [selectedReelForMore, savedReelIds, handleCloseMoreSheet, showToast]);
+    try {
+      if (wasSaved) {
+        await reelService.unbookmarkReel(id);
+        setSavedReelIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+        handleCloseMoreSheet();
+        showToast('Removed from saved', 'success');
+      } else {
+        await reelService.bookmarkReel(id);
+        setSavedReelIds(prev => new Set(prev).add(id));
+        handleCloseMoreSheet();
+        showToast('Reel saved to your list', 'success');
+      }
+    } catch (e) {
+      showToast('Failed to update saved list', 'info');
+    }
+  }, [selectedReelForMore, savedReelIds, user, handleCloseMoreSheet, showToast]);
 
-  const handleAddToRunList = useCallback(() => {
-    if (!selectedReelForMore) return;
-    setSavedReelIds(prev => new Set(prev).add(selectedReelForMore._id));
-    showToast('Added to your run list', 'success');
-    handleCloseMoreSheet();
-  }, [selectedReelForMore, handleCloseMoreSheet, showToast]);
+  const handleAddToRunList = useCallback(async () => {
+    if (!selectedReelForMore || !user) return;
+    const id = selectedReelForMore._id;
+    const alreadySaved = savedReelIds.has(id);
+    try {
+      if (!alreadySaved) {
+        await reelService.bookmarkReel(id);
+        setSavedReelIds(prev => new Set(prev).add(id));
+      }
+      handleCloseMoreSheet();
+      showToast(alreadySaved ? 'Already in your list' : 'Added to your run list', 'success');
+      (navigation as any).navigate('SavedReels');
+    } catch (e) {
+      showToast('Failed to add to list', 'info');
+    }
+  }, [selectedReelForMore, savedReelIds, user, handleCloseMoreSheet, showToast, navigation]);
 
   const handleViewFullscreen = useCallback(() => {
     if (selectedReelForMore) setFullscreenReel(selectedReelForMore);
@@ -617,16 +653,19 @@ const ReelsScreen: React.FC = () => {
       message: `Check out this run on Run Barbie 🎀\nhttps://runbarbie.app/reel/${selectedReelForMore._id}`,
       title: 'Run Barbie',
     }).catch(() => {});
-    showToast('Share sheet opened — copy the link from there', 'info');
     handleCloseMoreSheet();
-  }, [selectedReelForMore, handleCloseMoreSheet, showToast]);
+  }, [selectedReelForMore, handleCloseMoreSheet]);
 
   const handleReportReel = useCallback(() => {
     if (!selectedReelForMore) return;
-    setReportedReelIds(prev => new Set(prev).add(selectedReelForMore._id));
-    showToast("Thanks — we'll review this reel", 'success');
+    if (!user) {
+      showToast('Sign in to report', 'info');
+      handleCloseMoreSheet();
+      return;
+    }
     handleCloseMoreSheet();
-  }, [selectedReelForMore, handleCloseMoreSheet, showToast]);
+    (navigation as any).navigate('ReportReel', { reelId: selectedReelForMore._id });
+  }, [selectedReelForMore, user, showToast, handleCloseMoreSheet, navigation]);
 
   const handleFollowReelUser = useCallback(async (userId: string) => {
     if (!user) return;
@@ -749,13 +788,21 @@ const ReelsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style={isScreenFocused ? 'light' : 'dark'} />
-      {/* Create reel button - top right */}
+      {/* Create reel button - top left */}
       <TouchableOpacity
         style={[styles.createReelBtn, { top: insets.top + 8 }]}
         onPress={openCreateReel}
         activeOpacity={0.8}
       >
         <Ionicons name="add-circle" size={36} color="#fff" />
+      </TouchableOpacity>
+      {/* Saved reels button - top right */}
+      <TouchableOpacity
+        style={[styles.createReelBtn, { left: undefined, right: 16, top: insets.top + 8 }]}
+        onPress={() => (navigation as any).navigate('SavedReels')}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="bookmark-outline" size={26} color="#fff" />
       </TouchableOpacity>
       {/* Reel area fills remaining space; measured height = no black gap */}
       <View

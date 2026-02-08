@@ -1,6 +1,7 @@
 const express = require('express');
 const User = require('../models/User');
 const Post = require('../models/Post');
+const Reel = require('../models/Reel');
 const Notification = require('../models/Notification');
 const authMiddleware = require('../middleware/auth');
 
@@ -72,6 +73,37 @@ router.get('/me/saved-posts', authMiddleware, async (req, res) => {
         userId: userObj._id,
         likes: (post.likes || []).map((l) => (l && l._id ? l._id.toString() : l.toString())),
         commentCount: countMap.get(post._id.toString()) || 0,
+      };
+    });
+    res.json(transformed);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get current user's saved reels – full reel objects
+router.get('/me/saved-reels', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user || !user.savedReels || user.savedReels.length === 0) {
+      return res.json([]);
+    }
+    const reels = await Reel.find({ _id: { $in: user.savedReels } })
+      .populate('userId', 'username avatar')
+      .populate('likes', 'username')
+      .sort({ createdAt: -1 });
+    const transformed = reels.map((reel) => {
+      const u = reel.userId;
+      const isPopulated = u && typeof u === 'object' && 'username' in u;
+      const userObj = isPopulated
+        ? { _id: u._id.toString(), username: u.username, avatar: u.avatar || '' }
+        : { _id: (reel.userId && reel.userId.toString) ? reel.userId.toString() : '', username: 'Unknown', avatar: '' };
+      return {
+        ...reel.toObject(),
+        user: userObj,
+        _id: reel._id.toString(),
+        userId: userObj._id,
+        likes: (reel.likes || []).map((l) => (l && l._id ? l._id.toString() : l.toString())),
       };
     });
     res.json(transformed);

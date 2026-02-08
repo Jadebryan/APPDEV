@@ -9,6 +9,7 @@ const REMEMBER_ME_KEY = 'remember_me';
 const NOTIFICATIONS_SETTINGS_KEY = 'notifications_settings';
 const SAFETY_SETTINGS_KEY = 'safety_settings';
 const CONNECTED_APPS_KEY = 'connected_apps';
+const RECENT_SEARCHES_KEY = 'recent_searches';
 
 export type NotificationsSettings = {
   likes: boolean;
@@ -147,5 +148,20 @@ export const storage = {
 
   async setConnectedApps(s: ConnectedAppsSettings): Promise<void> {
     await AsyncStorage.setItem(CONNECTED_APPS_KEY, JSON.stringify(s));
+  },
+
+  async getRecentSearches(): Promise<string[]> {
+    const v = await AsyncStorage.getItem(RECENT_SEARCHES_KEY);
+    if (!v) return [];
+    try {
+      const arr = JSON.parse(v);
+      return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  },
+
+  async setRecentSearches(searches: string[]): Promise<void> {
+    await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches.slice(0, 20)));
   },
 };

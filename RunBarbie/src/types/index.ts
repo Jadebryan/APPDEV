@@ -23,6 +23,8 @@ export interface Post {
   userId: string;
   user: User;
   image: string;
+  /** Multiple photo URLs when post has more than one image */
+  images?: string[];
   caption: string;
   activityType: ActivityType;
   distance?: number; // in km
@@ -45,7 +47,10 @@ export interface RegisterVerificationResponse {
 }
 
 export interface CreatePostData {
-  image: string;
+  /** Single image URL (legacy) */
+  image?: string;
+  /** Multiple image URLs; when present, used for carousel posts */
+  images?: string[];
   caption: string;
   activityType: ActivityType;
   distance?: number;

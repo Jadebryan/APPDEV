@@ -4,7 +4,12 @@ const reportSchema = new mongoose.Schema({
   postId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Post',
-    required: true,
+    required: false,
+  },
+  reelId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Reel',
+    required: false,
   },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -19,6 +24,7 @@ const reportSchema = new mongoose.Schema({
   comment: { type: String, default: '' },
 }, { timestamps: true });
 
-reportSchema.index({ postId: 1, userId: 1 }, { unique: true });
+reportSchema.index({ postId: 1, userId: 1 }, { unique: true, sparse: true });
+reportSchema.index({ reelId: 1, userId: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('Report', reportSchema);

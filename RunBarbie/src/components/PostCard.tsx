@@ -12,10 +12,12 @@ import {
   Modal,
   Pressable,
   Linking,
+  ScrollView,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Post } from '../types';
 import { getTimeAgo } from '../utils/timeAgo';
+import { formatDurationMinutes } from '../utils/formatDuration';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { FeedStackParamList } from '../navigation/types';
@@ -49,11 +51,11 @@ type PostCardNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
  * PostCard - Instagram-style post with activity badge, timestamp, double-tap like, comment count, shadow
  */
 const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved: savedProp = false, onBookmark, onHidePost, onMuteUser }) => {
-  const [currentImageIndex] = useState(0);
+  const imageUrls = (post.images && post.images.length > 0) ? post.images : [post.image];
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [showHeart, setShowHeart] = useState(false);
   const [savedLocal, setSavedLocal] = useState(false);
   const saved = onBookmark ? savedProp : savedLocal;
-  const [inspired, setInspired] = useState(false);
   const [optionsVisible, setOptionsVisible] = useState(false);
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
@@ -70,7 +72,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
     showToast(message, type);
   };
 
-  const totalImages = 1;
+  const totalImages = imageUrls.length;
   const showCarouselIndicator = totalImages > 1;
   const activityConfig = ACTIVITY_CONFIG[post.activityType] || ACTIVITY_CONFIG.other;
   const commentCount = post.commentCount ?? 0;
@@ -116,7 +118,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
       postId: post._id,
       username: safeUser.username,
       caption: post.caption,
-      image: post.image,
+      image: imageUrls[0],
     });
   };
 
@@ -134,7 +136,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
     if (onBookmark) {
       onBookmark(post._id);
       setOptionsVisible(false);
-      showToast(saved ? 'Run removed from saved' : 'Run saved', 'success');
+      // Toast is shown by parent (e.g. FeedScreen) after API completes to avoid double toast
     } else {
       const next = !saved;
       setSavedLocal(next);
@@ -147,11 +149,14 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
     setOptionsVisible(false);
     navigation.navigate('AddGoal', { post });
   };
-  const handleMarkInspiration = () => {
-    if (onBookmark) onBookmark(post._id);
-    setInspired(true);
+  const handleCopyLink = () => {
     setOptionsVisible(false);
-    showToast('Saved as inspiration', 'success');
+    const url = `https://runbarbie.app/post/${post._id}`;
+    Share.share({ message: url, title: 'Post link' }).catch(() => {});
+    showToast('Link ready – share to copy', 'info');
+  };
+  const handleViewSavedRuns = () => {
+    setOptionsVisible(false);
     navigation.navigate('SavedPosts');
   };
   const handleMuteAthlete = () => {
@@ -234,36 +239,63 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
         </TouchableOpacity>
       </View>
 
-      {/* Main Image: double-tap to like with heart animation */}
-      <TouchableWithoutFeedback onPress={handleImagePress}>
-        <View style={styles.imageContainer}>
-          <Image
-            source={{ uri: post.image }}
-            style={[styles.image, { height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
-            resizeMode="cover"
-          />
-          {showHeart && (
-            <Animated.View
-              style={[
-                styles.heartOverlay,
-                {
-                  opacity: heartOpacity,
-                  transform: [{ scale: heartScale }],
-                },
-              ]}
-            >
-              <Ionicons name="heart" size={80} color="#FF69B4" />
-            </Animated.View>
-          )}
-          {showCarouselIndicator && (
-            <View style={styles.carouselIndicator}>
-              <Text style={styles.carouselText}>
-                {currentImageIndex + 1}/{totalImages}
-              </Text>
-            </View>
-          )}
-        </View>
-      </TouchableWithoutFeedback>
+      {/* Main Image(s): double-tap to like with heart animation; multi-image uses per-page tap so ScrollView can receive swipes */}
+      <View style={styles.imageContainer}>
+        {totalImages > 1 ? (
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) => {
+              const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+              setCurrentImageIndex(index);
+            }}
+            contentContainerStyle={{ width: SCREEN_WIDTH * totalImages }}
+            style={styles.imageScroll}
+          >
+            {imageUrls.map((uri, index) => (
+              <TouchableWithoutFeedback key={index} onPress={handleImagePress}>
+                <View style={styles.imagePage}>
+                  <Image
+                    source={{ uri }}
+                    style={[styles.image, { width: SCREEN_WIDTH, height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
+                    resizeMode="cover"
+                  />
+                </View>
+              </TouchableWithoutFeedback>
+            ))}
+          </ScrollView>
+        ) : (
+          <TouchableWithoutFeedback onPress={handleImagePress}>
+            <Image
+              source={{ uri: imageUrls[0] }}
+              style={[styles.image, { height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
+              resizeMode="cover"
+            />
+          </TouchableWithoutFeedback>
+        )}
+        {showHeart && (
+          <Animated.View
+            style={[
+              styles.heartOverlay,
+              {
+                opacity: heartOpacity,
+                transform: [{ scale: heartScale }],
+              },
+            ]}
+            pointerEvents="none"
+          >
+            <Ionicons name="heart" size={80} color="#FF69B4" />
+          </Animated.View>
+        )}
+        {showCarouselIndicator && (
+          <View style={styles.carouselIndicator} pointerEvents="none">
+            <Text style={styles.carouselText}>
+              {currentImageIndex + 1}/{totalImages}
+            </Text>
+          </View>
+        )}
+      </View>
 
       {/* Action Buttons - pink heart when liked */}
       <View style={styles.actions}>
@@ -320,7 +352,9 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
       {(post.distance || post.duration) && (
         <View style={styles.statsSection}>
           {post.distance && <Text style={styles.statText}>📏 {post.distance} km</Text>}
-          {post.duration && <Text style={styles.statText}>⏱️ {post.duration} min</Text>}
+          {post.duration != null && post.duration > 0 && (
+            <Text style={styles.statText}>⏱️ {formatDurationMinutes(post.duration)}</Text>
+          )}
         </View>
       )}
 
@@ -344,19 +378,15 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
           <View style={styles.sheetContainer}>
             <View style={styles.sheetHandle} />
 
-            {/* Run Barbie-themed quick actions */}
+            {/* Run Barbie-themed quick actions: Copy link, Share, Set goal (save is only in action bar) */}
             <View style={styles.sheetIconRow}>
               <TouchableOpacity
                 style={styles.sheetIconCard}
-                onPress={handleToggleSave}
+                onPress={handleCopyLink}
                 activeOpacity={0.8}
               >
-                <Ionicons
-                  name={saved ? 'bookmark' : 'bookmark-outline'}
-                  size={22}
-                  color="#000"
-                />
-                <Text style={styles.sheetIconLabel}>Save run</Text>
+                <Ionicons name="link-outline" size={22} color="#000" />
+                <Text style={styles.sheetIconLabel}>Copy link</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -364,7 +394,6 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
                 onPress={() => {
                   setOptionsVisible(false);
                   handleShare();
-                  showToast('Share opened', 'info');
                 }}
                 activeOpacity={0.8}
               >
@@ -383,9 +412,9 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
             </View>
 
             <View style={styles.sheetList}>
-              <TouchableOpacity style={styles.sheetItem} onPress={handleMarkInspiration} activeOpacity={0.8}>
-                <Ionicons name="star-outline" size={18} color="#000" style={styles.sheetItemIcon} />
-                <Text style={styles.sheetItemText}>Mark as inspiration</Text>
+              <TouchableOpacity style={styles.sheetItem} onPress={handleViewSavedRuns} activeOpacity={0.8}>
+                <Ionicons name="bookmark-outline" size={18} color="#000" style={styles.sheetItemIcon} />
+                <Text style={styles.sheetItemText}>View saved runs</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.sheetItem} onPress={handleMuteAthlete} activeOpacity={0.8}>
@@ -499,6 +528,14 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
     backgroundColor: '#000',
+  },
+  imageScroll: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO,
+  },
+  imagePage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO,
   },
   image: {
     width: '100%',

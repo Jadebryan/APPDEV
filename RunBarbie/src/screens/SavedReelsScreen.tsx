@@ -1,20 +1,22 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { userService } from '../services/api';
-import { Post } from '../types';
+import { userService, reelService } from '../services/api';
+import { Reel } from '../types';
+import { ReelsStackParamList } from '../navigation/types';
 import { getTimeAgo } from '../utils/timeAgo';
 import { useToast } from '../context/ToastContext';
-import { FeedStackParamList } from '../navigation/types';
 
-type SavedPostsRoute = RouteProp<FeedStackParamList, 'SavedPosts'>;
+type Nav = NativeStackNavigationProp<ReelsStackParamList, 'SavedReels'>;
+type SavedReelsRoute = RouteProp<ReelsStackParamList, 'SavedReels'>;
 
-const SavedPostsScreen: React.FC = () => {
-  const navigation = useNavigation();
-  const route = useRoute<SavedPostsRoute>();
+const SavedReelsScreen: React.FC = () => {
+  const navigation = useNavigation<Nav>();
+  const route = useRoute<SavedReelsRoute>();
   const { showToast } = useToast();
   const fromProfile = route.params?.fromProfile === true;
 
@@ -26,16 +28,16 @@ const SavedPostsScreen: React.FC = () => {
       navigation.goBack();
     }
   };
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadPosts = useCallback(async () => {
+  const loadReels = useCallback(async () => {
     try {
       setLoading(true);
-      const list = await userService.getSavedPosts();
-      setPosts(list);
+      const list = await userService.getSavedReels();
+      setReels(list);
     } catch {
-      showToast('Failed to load saved posts', 'info');
+      showToast('Failed to load saved reels', 'info');
     } finally {
       setLoading(false);
     }
@@ -43,38 +45,49 @@ const SavedPostsScreen: React.FC = () => {
 
   useFocusEffect(
     useCallback(() => {
-      loadPosts();
-    }, [loadPosts])
+      loadReels();
+    }, [loadReels])
   );
 
-  const openComments = (post: Post) => {
-    const user = post.user ?? (post as { userId?: { username?: string } }).userId;
-    const username = user?.username ?? 'Unknown';
-    navigation.navigate('Comments', {
-      postId: post._id,
-      username,
-      caption: post.caption,
-      image: post.image,
-    });
+  const handlePlayReel = (reel: Reel) => {
+    navigation.navigate('ReelsHome', { initialReelId: reel._id });
   };
 
-  const renderItem = ({ item }: { item: Post }) => {
-    const user = item.user ?? (item as { userId?: { username?: string; avatar?: string } }).userId;
+  const handleRemove = (reel: Reel) => {
+    Alert.alert('Remove from saved', `Remove this reel from your saved list?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await reelService.unbookmarkReel(reel._id);
+            setReels((prev) => prev.filter((r) => r._id !== reel._id));
+            showToast('Removed from saved', 'success');
+          } catch {
+            showToast('Failed to remove', 'info');
+          }
+        },
+      },
+    ]);
+  };
+
+  const renderItem = ({ item }: { item: Reel }) => {
+    const user = item.user ?? (item as { userId?: { username?: string } }).userId;
     const username = user?.username ?? 'Unknown';
-    const avatar = user?.avatar;
     return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() => openComments(item)}
-        activeOpacity={0.8}
-      >
-        <Image source={{ uri: item.image }} style={styles.thumb} resizeMode="cover" />
+      <TouchableOpacity style={styles.card} onPress={() => handlePlayReel(item)} activeOpacity={0.8}>
+        <View style={styles.thumb}>
+          <Ionicons name="play-circle" size={36} color="rgba(255,255,255,0.9)" />
+        </View>
         <View style={styles.cardBody}>
           <Text style={styles.username}>@{username}</Text>
           <Text style={styles.caption} numberOfLines={2}>{item.caption || 'No caption'}</Text>
           {item.createdAt && <Text style={styles.time}>{getTimeAgo(item.createdAt)}</Text>}
         </View>
-        <Ionicons name="chevron-forward" size={20} color="#999" />
+        <TouchableOpacity onPress={() => handleRemove(item)} style={styles.removeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="trash-outline" size={22} color="#999" />
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -85,7 +98,7 @@ const SavedPostsScreen: React.FC = () => {
         <TouchableOpacity onPress={handleBack} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Saved (inspiration)</Text>
+        <Text style={styles.headerTitle}>Saved reels</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -93,15 +106,15 @@ const SavedPostsScreen: React.FC = () => {
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#FF69B4" />
         </View>
-      ) : posts.length === 0 ? (
+      ) : reels.length === 0 ? (
         <View style={styles.centered}>
           <Ionicons name="bookmark-outline" size={48} color="#ccc" />
-          <Text style={styles.emptyText}>No saved posts</Text>
-          <Text style={styles.emptySub}>Save runs from the feed (⋯ → Save run or Mark as inspiration)</Text>
+          <Text style={styles.emptyText}>No saved reels</Text>
+          <Text style={styles.emptySub}>Save reels from the menu (⋯ → Save or Run list)</Text>
         </View>
       ) : (
         <FlatList
-          data={posts}
+          data={reels}
           keyExtractor={(item) => item._id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
@@ -138,11 +151,19 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
   },
-  thumb: { width: 56, height: 56, borderRadius: 8 },
+  thumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   cardBody: { flex: 1, marginLeft: 12 },
   username: { fontSize: 15, fontWeight: '600', color: '#000' },
   caption: { fontSize: 14, color: '#555', marginTop: 2 },
   time: { fontSize: 12, color: '#999', marginTop: 4 },
+  removeBtn: {},
 });
 
-export default SavedPostsScreen;
+export default SavedReelsScreen;

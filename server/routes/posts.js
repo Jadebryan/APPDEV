@@ -45,18 +45,23 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create post (image = Cloudinary URL)
+// Create post (image = Cloudinary URL, or images = array of URLs)
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const { image, caption, activityType, distance, duration, location } = req.body;
+    const { image, images: imagesArray, caption, activityType, distance, duration, location } = req.body;
 
-    if (!image || !activityType) {
-      return res.status(400).json({ error: 'Image and activity type are required' });
+    const imageUrls = Array.isArray(imagesArray) && imagesArray.length > 0
+      ? imagesArray
+      : (image ? [image] : []);
+
+    if (imageUrls.length === 0 || !activityType) {
+      return res.status(400).json({ error: 'At least one image and activity type are required' });
     }
 
     const post = new Post({
       userId: req.user._id,
-      image,
+      image: imageUrls[0],
+      images: imageUrls.length > 1 ? imageUrls : undefined,
       caption: caption || '',
       activityType,
       distance,

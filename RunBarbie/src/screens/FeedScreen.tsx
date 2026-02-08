@@ -24,6 +24,7 @@ import { postService, reelService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
+import { formatDurationMinutes } from '../utils/formatDuration';
 
 type FeedScreenNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
 type FeedHomeRoute = RouteProp<FeedStackParamList, 'FeedHome'>;
@@ -247,7 +248,7 @@ const FeedScreen: React.FC = () => {
         </View>
         <Text style={styles.smartSub}>
           This week: <Text style={styles.smartStrong}>{weekDistanceKm} km</Text> •{' '}
-          <Text style={styles.smartStrong}>{weekDurationMin} min</Text> •{' '}
+          <Text style={styles.smartStrong}>{formatDurationMinutes(weekDurationMin)}</Text> •{' '}
           <Text style={styles.smartStrong}>{myPostsThisWeek}</Text> posts
         </Text>
       </View>

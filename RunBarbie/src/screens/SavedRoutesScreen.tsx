@@ -1,14 +1,29 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Linking, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { userService, SavedRoute } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { FeedStackParamList } from '../navigation/types';
+
+type SavedRoutesRoute = RouteProp<FeedStackParamList, 'SavedRoutes'>;
 
 const SavedRoutesScreen: React.FC = () => {
   const navigation = useNavigation();
+  const route = useRoute<SavedRoutesRoute>();
   const { showToast } = useToast();
+  const fromProfile = route.params?.fromProfile === true;
+
+  const handleBack = () => {
+    if (fromProfile) {
+      const mainTabs = (navigation.getParent() as any)?.getParent?.();
+      mainTabs?.navigate('ProfileStack');
+    } else {
+      navigation.goBack();
+    }
+  };
   const [routes, setRoutes] = useState<SavedRoute[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -85,7 +100,7 @@ const SavedRoutesScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Saved routes</Text>

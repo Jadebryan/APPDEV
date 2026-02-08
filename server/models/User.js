@@ -56,6 +56,10 @@ const userSchema = new mongoose.Schema({
     longitude: Number,
     createdAt: { type: Date, default: Date.now },
   }],
+  savedReels: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Reel',
+  }],
   isVerified: {
     type: Boolean,
     default: false,

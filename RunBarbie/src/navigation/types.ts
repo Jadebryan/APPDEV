@@ -27,23 +27,25 @@ export type FeedStackParamList = {
     bio?: string;
   };
   AddGoal: { post: Post };
-  Goals: undefined;
-  SavedPosts: undefined;
-  SavedRoutes: undefined;
+  Goals: { fromProfile?: boolean };
+  SavedPosts: { fromProfile?: boolean };
+  SavedRoutes: { fromProfile?: boolean };
   Report: { postId: string };
 };
 
 export type MainTabParamList = {
   FeedStack: undefined;
-  Reels: { screen?: 'ReelsHome' | 'CreateReel'; params?: { initialReelId?: string } };
+  Reels: { screen?: 'ReelsHome' | 'CreateReel' | 'SavedReels' | 'ReportReel'; params?: { initialReelId?: string } };
   Search: undefined;
   ChatsStack: undefined;
   ProfileStack: undefined;
 };
 
 export type ReelsStackParamList = {
-  ReelsHome: { initialReelId?: string };
+  ReelsHome: { initialReelId?: string; reportedReelId?: string };
   CreateReel: undefined;
+  SavedReels: { fromProfile?: boolean };
+  ReportReel: { reelId: string };
 };
 
 export type ProfileStackParamList = {

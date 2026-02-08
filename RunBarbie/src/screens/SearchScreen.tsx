@@ -55,7 +55,7 @@ const SearchScreen: React.FC = () => {
       setSuggestedUsers(users);
       setTrendingTags(tags);
       setUpcomingTrailPosts(upcoming);
-      setRecentSearches(searchService.getRecentSearches());
+      setRecentSearches(await searchService.getRecentSearches());
     } catch (e) {
       console.error('Load suggestions error', e);
     } finally {
@@ -77,7 +77,7 @@ const SearchScreen: React.FC = () => {
     if (!query.trim()) {
       setUserResults([]);
       setTagResults([]);
-      setRecentSearches(searchService.getRecentSearches());
+      searchService.getRecentSearches().then(setRecentSearches);
       return;
     }
     const t = query.trim();
@@ -110,10 +110,12 @@ const SearchScreen: React.FC = () => {
     Keyboard.dismiss();
   };
 
-  const handleSearchSubmit = (term: string) => {
+  const handleSearchSubmit = async (term: string) => {
     const t = term.trim();
-    if (t) searchService.addRecentSearch(t);
-    setRecentSearches(searchService.getRecentSearches());
+    if (t) {
+      await searchService.addRecentSearch(t);
+      setRecentSearches(await searchService.getRecentSearches());
+    }
   };
 
   const handleRecentTap = (term: string) => {
@@ -121,8 +123,8 @@ const SearchScreen: React.FC = () => {
     handleSearchSubmit(term);
   };
 
-  const handleClearRecent = () => {
-    searchService.clearRecentSearches();
+  const handleClearRecent = async () => {
+    await searchService.clearRecentSearches();
     setRecentSearches([]);
   };
 
@@ -141,10 +143,10 @@ const SearchScreen: React.FC = () => {
     }
   };
 
-  const handleTagTap = (tag: string) => {
+  const handleTagTap = async (tag: string) => {
     const tagName = tag.replace(/^#/, '');
-    searchService.addRecentSearch(tag.startsWith('#') ? tag : `#${tagName}`);
-    setRecentSearches(searchService.getRecentSearches());
+    await searchService.addRecentSearch(tag.startsWith('#') ? tag : `#${tagName}`);
+    setRecentSearches(await searchService.getRecentSearches());
     setQuery('');
     navigation.navigate('FeedStack', {
       screen: 'FeedHome',

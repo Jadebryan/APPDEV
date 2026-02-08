@@ -26,8 +26,12 @@ const AddGoalScreen: React.FC = () => {
   const { showToast } = useToast();
   const [title, setTitle] = useState('');
   const [targetDistance, setTargetDistance] = useState('');
-  const [targetDuration, setTargetDuration] = useState('');
+  const [targetDurationHours, setTargetDurationHours] = useState('');
+  const [targetDurationMinutes, setTargetDurationMinutes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const totalTargetDurationMinutes =
+    (parseInt(targetDurationHours, 10) || 0) * 60 + (parseInt(targetDurationMinutes, 10) || 0);
 
   const handleSubmit = async () => {
     const trimmed = title.trim();
@@ -41,7 +45,7 @@ const AddGoalScreen: React.FC = () => {
         postId: post._id,
         title: trimmed,
         targetDistance: targetDistance ? parseFloat(targetDistance) : undefined,
-        targetDuration: targetDuration ? parseInt(targetDuration, 10) : undefined,
+        targetDuration: totalTargetDurationMinutes > 0 ? totalTargetDurationMinutes : undefined,
       });
       showToast('Goal added', 'success');
       navigation.goBack();
@@ -88,15 +92,29 @@ const AddGoalScreen: React.FC = () => {
             keyboardType="decimal-pad"
           />
 
-          <Text style={styles.label}>Target duration (minutes, optional)</Text>
-          <TextInput
-            style={styles.input}
-            value={targetDuration}
-            onChangeText={setTargetDuration}
-            placeholder="e.g. 30"
-            placeholderTextColor="#999"
-            keyboardType="number-pad"
-          />
+          <Text style={styles.label}>Target duration (optional)</Text>
+          <View style={styles.durationRow}>
+            <TextInput
+              style={styles.durationInput}
+              value={targetDurationHours}
+              onChangeText={setTargetDurationHours}
+              placeholder="0"
+              placeholderTextColor="#999"
+              keyboardType="number-pad"
+              maxLength={3}
+            />
+            <Text style={styles.durationUnit}>h</Text>
+            <TextInput
+              style={styles.durationInput}
+              value={targetDurationMinutes}
+              onChangeText={setTargetDurationMinutes}
+              placeholder="0"
+              placeholderTextColor="#999"
+              keyboardType="number-pad"
+              maxLength={2}
+            />
+            <Text style={styles.durationUnit}>m</Text>
+          </View>
 
           <TouchableOpacity
             style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
@@ -142,6 +160,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
     marginBottom: 16,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+  },
+  durationInput: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    fontSize: 16,
+    color: '#000',
+    minWidth: 0,
+  },
+  durationUnit: {
+    fontSize: 16,
+    color: '#666',
+    marginLeft: 4,
+    marginRight: 4,
   },
   submitBtn: {
     backgroundColor: '#FF69B4',

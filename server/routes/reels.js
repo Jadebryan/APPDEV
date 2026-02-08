@@ -1,5 +1,7 @@
 const express = require('express');
 const Reel = require('../models/Reel');
+const User = require('../models/User');
+const Report = require('../models/Report');
 const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
@@ -67,6 +69,58 @@ router.post('/', authMiddleware, async (req, res) => {
     };
 
     res.status(201).json(transformed);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bookmark reel (auth)
+router.post('/:id/bookmark', authMiddleware, async (req, res) => {
+  try {
+    const reel = await Reel.findById(req.params.id);
+    if (!reel) return res.status(404).json({ error: 'Reel not found' });
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.savedReels) user.savedReels = [];
+    if (user.savedReels.some((id) => id.toString() === reel._id.toString())) {
+      return res.json({ savedReels: (user.savedReels || []).map((id) => id.toString()) });
+    }
+    user.savedReels.push(reel._id);
+    await user.save();
+    res.json({ savedReels: user.savedReels.map((id) => id.toString()) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Unbookmark reel (auth)
+router.delete('/:id/bookmark', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.savedReels) user.savedReels = [];
+    user.savedReels = user.savedReels.filter((id) => id.toString() !== req.params.id);
+    await user.save();
+    res.json({ savedReels: user.savedReels.map((id) => id.toString()) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Report reel (auth)
+router.post('/:id/report', authMiddleware, async (req, res) => {
+  try {
+    const reel = await Reel.findById(req.params.id);
+    if (!reel) return res.status(404).json({ error: 'Reel not found' });
+    const { reason, comment } = req.body;
+    const validReasons = ['spam', 'inappropriate', 'harassment', 'other'];
+    const r = validReasons.includes(reason) ? reason : 'other';
+    await Report.findOneAndUpdate(
+      { reelId: reel._id, userId: req.user._id },
+      { reelId: reel._id, userId: req.user._id, reason: r, comment: comment ? String(comment).trim() : '' },
+      { upsert: true, new: true }
+    );
+    res.json({ ok: true, message: 'Report submitted. We will review this reel.' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

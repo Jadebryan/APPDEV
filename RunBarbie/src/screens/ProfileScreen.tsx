@@ -21,7 +21,16 @@ import { ProfileStackParamList } from '../navigation/types';
 
 type ProfileNav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileHome'>;
 
-type TabType = 'posts' | 'reels';
+type TabType = 'posts' | 'reels' | 'saved';
+
+const SAVED_SECTIONS = [
+  { id: 'saved-posts', label: 'Saved posts', sublabel: 'Runs you saved as inspiration', icon: 'bookmark-outline' as const, tab: 'FeedStack' as const, screen: 'SavedPosts' as const },
+  { id: 'goals', label: 'Goals', sublabel: 'Run goals you set from posts', icon: 'flag-outline' as const, tab: 'FeedStack' as const, screen: 'Goals' as const },
+  { id: 'saved-routes', label: 'Saved routes', sublabel: 'Route ideas from posts', icon: 'trail-sign-outline' as const, tab: 'FeedStack' as const, screen: 'SavedRoutes' as const },
+  { id: 'saved-reels', label: 'Saved reels', sublabel: 'Reels and run list', icon: 'play-circle-outline' as const, tab: 'Reels' as const, screen: 'SavedReels' as const },
+];
+
+const FROM_PROFILE_PARAMS = { fromProfile: true };
 
 const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<ProfileNav>();
@@ -32,6 +41,15 @@ const ProfileScreen: React.FC = () => {
   const [tab, setTab] = useState<TabType>('posts');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const openSavedSection = (item: (typeof SAVED_SECTIONS)[0]) => {
+    const mainTabs = (navigation.getParent() as any)?.getParent?.();
+    if (item.tab === 'FeedStack') {
+      mainTabs?.navigate('FeedStack', { screen: item.screen, params: FROM_PROFILE_PARAMS });
+    } else {
+      mainTabs?.navigate('Reels', { screen: item.screen, params: FROM_PROFILE_PARAMS });
+    }
+  };
 
   const loadData = useCallback(async () => {
     if (!user) return;
@@ -91,6 +109,19 @@ const ProfileScreen: React.FC = () => {
   const thumbSize = (width - 4) / 3;
   const gridData = tab === 'posts' ? posts : reels;
   const isPost = (item: Post | Reel): item is Post => 'image' in item;
+
+  const renderSavedSection = ({ item }: { item: (typeof SAVED_SECTIONS)[0] }) => (
+    <TouchableOpacity style={styles.savedRow} onPress={() => openSavedSection(item)} activeOpacity={0.7}>
+      <View style={styles.savedRowIcon}>
+        <Ionicons name={item.icon} size={24} color="#000" />
+      </View>
+      <View style={styles.savedRowText}>
+        <Text style={styles.savedRowLabel}>{item.label}</Text>
+        <Text style={styles.savedRowSublabel}>{item.sublabel}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={20} color="#999" />
+    </TouchableOpacity>
+  );
 
   const renderGridItem = ({ item }: { item: Post | Reel }) => {
     if (isPost(item)) {
@@ -178,6 +209,12 @@ const ProfileScreen: React.FC = () => {
         >
           <Ionicons name="play-circle-outline" size={22} color={tab === 'reels' ? '#000' : '#666'} />
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, tab === 'saved' && styles.tabActive]}
+          onPress={() => setTab('saved')}
+        >
+          <Ionicons name="bookmark-outline" size={22} color={tab === 'saved' ? '#000' : '#666'} />
+        </TouchableOpacity>
       </View>
     </>
   );
@@ -197,31 +234,33 @@ const ProfileScreen: React.FC = () => {
         </View>
       ) : (
         <FlatList
-          data={gridData}
-          numColumns={3}
-          keyExtractor={(item) => item._id}
+          data={tab === 'saved' ? SAVED_SECTIONS : gridData}
+          numColumns={tab === 'saved' ? 1 : 3}
+          keyExtractor={(item) => ((item as any)._id != null ? (item as any)._id : (item as any).id)}
           ListHeaderComponent={header}
-          columnWrapperStyle={styles.gridRow}
-          contentContainerStyle={styles.gridContent}
-          renderItem={renderGridItem}
+          columnWrapperStyle={tab === 'saved' ? undefined : styles.gridRow}
+          contentContainerStyle={tab === 'saved' ? styles.savedListContent : styles.gridContent}
+          renderItem={tab === 'saved' ? renderSavedSection : renderGridItem}
           key={tab}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#333" />}
+          refreshControl={tab !== 'saved' ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#333" /> : undefined}
           ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              {tab === 'posts' ? (
-                <>
-                  <Ionicons name="images-outline" size={48} color="#ccc" />
-                  <Text style={styles.emptyText}>No posts yet</Text>
-                  <Text style={styles.emptySubtext}>Share your first adventure!</Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="videocam-outline" size={48} color="#ccc" />
-                  <Text style={styles.emptyText}>No reels yet</Text>
-                  <Text style={styles.emptySubtext}>Create a reel from the Reels tab</Text>
-                </>
-              )}
-            </View>
+            tab === 'saved' ? null : (
+              <View style={styles.emptyContainer}>
+                {tab === 'posts' ? (
+                  <>
+                    <Ionicons name="images-outline" size={48} color="#ccc" />
+                    <Text style={styles.emptyText}>No posts yet</Text>
+                    <Text style={styles.emptySubtext}>Share your first adventure!</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="videocam-outline" size={48} color="#ccc" />
+                    <Text style={styles.emptyText}>No reels yet</Text>
+                    <Text style={styles.emptySubtext}>Create a reel from the Reels tab</Text>
+                  </>
+                )}
+              </View>
+            )
           }
         />
       )}
@@ -363,6 +402,30 @@ const styles = StyleSheet.create({
   gridContent: {
     paddingBottom: 24,
   },
+  savedListContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  savedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+  },
+  savedRowIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  savedRowText: { flex: 1 },
+  savedRowLabel: { fontSize: 16, fontWeight: '600', color: '#000' },
+  savedRowSublabel: { fontSize: 13, color: '#666', marginTop: 2 },
   gridRow: {
     marginBottom: 2,
     gap: 2,

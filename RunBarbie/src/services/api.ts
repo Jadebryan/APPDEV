@@ -303,16 +303,29 @@ const realUserService = {
     const response = await api.delete(`/users/me/saved-routes/${postId}`);
     return response.data;
   },
+
+  getSavedReels: async (): Promise<Reel[]> => {
+    const response = await api.get('/users/me/saved-reels');
+    return response.data;
+  },
 };
 
-// Real search (stubs; Facebook trail events when token provided)
+// Real search (stubs; Facebook trail events when token provided; recent searches from storage)
 const realSearchService = {
   searchUsers: async (_q: string): Promise<User[]> => [],
   searchTags: async (_q: string): Promise<SearchTag[]> => [],
   getTrendingTags: async (): Promise<SearchTag[]> => [],
-  getRecentSearches: (): string[] => [],
-  addRecentSearch: (_term: string) => {},
-  clearRecentSearches: () => {},
+  getRecentSearches: async (): Promise<string[]> => storage.getRecentSearches(),
+  addRecentSearch: async (term: string): Promise<void> => {
+    const list = await storage.getRecentSearches();
+    const trimmed = term.trim();
+    if (!trimmed) return;
+    const updated = [trimmed, ...list.filter((s) => s.toLowerCase() !== trimmed.toLowerCase())].slice(0, 20);
+    await storage.setRecentSearches(updated);
+  },
+  clearRecentSearches: async (): Promise<void> => {
+    await storage.setRecentSearches([]);
+  },
   getSuggestedUsers: async (): Promise<User[]> => [],
   getUpcomingTrailPosts: async (facebookAccessToken?: string | null): Promise<UpcomingTrailPost[]> => {
     const token =
@@ -340,6 +353,18 @@ const realReelService = {
   },
   createReel: async (data: CreateReelData): Promise<Reel> => {
     const res = await api.post<Reel>('/reels', data);
+    return res.data;
+  },
+  bookmarkReel: async (reelId: string): Promise<{ savedReels: string[] }> => {
+    const res = await api.post<{ savedReels: string[] }>(`/reels/${reelId}/bookmark`);
+    return res.data;
+  },
+  unbookmarkReel: async (reelId: string): Promise<{ savedReels: string[] }> => {
+    const res = await api.delete<{ savedReels: string[] }>(`/reels/${reelId}/bookmark`);
+    return res.data;
+  },
+  reportReel: async (reelId: string, body: { reason: string; comment?: string }): Promise<{ ok: boolean; message?: string }> => {
+    const res = await api.post<{ ok: boolean; message?: string }>(`/reels/${reelId}/report`, body);
     return res.data;
   },
 };

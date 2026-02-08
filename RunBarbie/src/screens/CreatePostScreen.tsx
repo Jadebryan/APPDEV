@@ -16,11 +16,12 @@ import {
   Modal,
   Keyboard,
   Linking,
+  PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-// import * as MediaLibrary from 'expo-media-library'; // Disabled until dev build
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { ActivityType, PostLocation } from '../types';
 import { postService, uploadService } from '../services/api';
@@ -31,7 +32,7 @@ import { useToast } from '../context/ToastContext';
 import { useStories } from '../context/StoriesContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GRID_SIZE = (SCREEN_WIDTH - 32) / 3; // 3 columns with padding
+const MAX_POST_PHOTOS = 10;
 
 const CreatePostScreen: React.FC = () => {
   const { showToast } = useToast();
@@ -40,7 +41,9 @@ const CreatePostScreen: React.FC = () => {
   const [caption, setCaption] = useState('');
   const [activityType, setActivityType] = useState<ActivityType>('run');
   const [distance, setDistance] = useState('');
-  const [duration, setDuration] = useState('');
+  const [durationHours, setDurationHours] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState('');
+  const totalDurationMinutes = (parseInt(durationHours, 10) || 0) * 60 + (parseInt(durationMinutes, 10) || 0);
   const [loading, setLoading] = useState(false);
   const [recentPhotos, setRecentPhotos] = useState<string[]>([]);
   const [showDetails, setShowDetails] = useState(false); // Step 2: editing details
@@ -54,6 +57,16 @@ const CreatePostScreen: React.FC = () => {
   const searchQueryRef = useRef('');
   const [searchResults, setSearchResults] = useState<{ latitude: number; longitude: number; name: string }[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [cropModalVisible, setCropModalVisible] = useState(false);
+  const [cropAspect, setCropAspect] = useState<'original' | '1:1' | '4:5'>('1:1');
+  const [cropPan, setCropPan] = useState({ x: 0, y: 0 });
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropImageUri, setCropImageUri] = useState<string | null>(null);
+  const [cropImageSize, setCropImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [cropApplying, setCropApplying] = useState(false);
+  const panStartRef = useRef({ x: 0, y: 0 });
   const navigation = useNavigation();
   const { user } = useAuth();
   const { stories } = useStories();
@@ -240,30 +253,40 @@ const CreatePostScreen: React.FC = () => {
     setCaption(generatedCaption || 'Active and moving! 💪');
   };
 
-  // Load recent photos from gallery - DISABLED until dev build
-  // useEffect(() => {
-  //   loadRecentPhotos();
-  // }, []);
+  const loadRecentPhotos = useCallback(async () => {
+    // Don't load MediaLibrary on Android – Expo Go can't provide it and the native module logs a warning.
+    if (Platform.OS === 'android') return;
 
-  // const loadRecentPhotos = async () => {
-  //   try {
-  //     const { status } = await MediaLibrary.requestPermissionsAsync();
-  //     if (status !== 'granted') {
-  //       return;
-  //     }
+    try {
+      const MediaLibrary = await import('expo-media-library');
+      const { status } = await MediaLibrary.requestPermissionsAsync(false, ['photo']);
+      if (status !== 'granted') return;
 
-  //     const assetsResponse = await MediaLibrary.getAssetsAsync({
-  //       mediaType: [MediaLibrary.MediaType.photo],
-  //       first: 24,
-  //       sortBy: [MediaLibrary.SortBy.creationTime],
-  //     });
+      const assetsResponse = await MediaLibrary.getAssetsAsync({
+        mediaType: [MediaLibrary.MediaType.photo],
+        first: 24,
+        sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+      });
 
-  //     const uris = assetsResponse.assets.map((asset) => asset.uri).filter(Boolean) as string[];
-  //     setRecentPhotos(uris);
-  //   } catch (error) {
-  //     console.error('Error loading photos:', error);
-  //   }
-  // };
+      const uris = assetsResponse.assets.map((asset) => asset.uri).filter(Boolean) as string[];
+      setRecentPhotos(uris);
+    } catch (error) {
+      console.warn('Could not load recent photos:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRecentPhotos();
+  }, [loadRecentPhotos]);
+
+  const pickFromRecent = (uri: string) => {
+    if (images.length >= MAX_POST_PHOTOS) {
+      showToast(`Maximum ${MAX_POST_PHOTOS} photos per post.`, 'info');
+      return;
+    }
+    setImages((prev) => [...prev, uri].slice(0, MAX_POST_PHOTOS));
+    setSelectedImageIndex(images.length);
+  };
 
   const pickImage = async () => {
     try {
@@ -278,12 +301,14 @@ const CreatePostScreen: React.FC = () => {
         allowsEditing: false,
         quality: 0.8,
         allowsMultipleSelection: true,
+        selectionLimit: MAX_POST_PHOTOS,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const uris = result.assets.map((asset) => asset.uri);
+        const uris = result.assets.map((asset) => asset.uri).slice(0, MAX_POST_PHOTOS);
         setImages(uris);
         setSelectedImageIndex(0);
+        loadRecentPhotos(); // Refresh recents so new picks appear next time
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -304,8 +329,13 @@ const CreatePostScreen: React.FC = () => {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setImages([result.assets[0].uri]);
-      setSelectedImageIndex(0);
+      if (images.length >= MAX_POST_PHOTOS) {
+        showToast(`Maximum ${MAX_POST_PHOTOS} photos per post.`, 'info');
+        return;
+      }
+      setImages((prev) => [...prev, result.assets[0].uri].slice(0, MAX_POST_PHOTOS));
+      setSelectedImageIndex(images.length);
+      loadRecentPhotos(); // Refresh recents so new photo appears
     }
   };
 
@@ -328,6 +358,187 @@ const CreatePostScreen: React.FC = () => {
     }
     setShowDetails(true);
   };
+
+  const getImageDimensions = (uri: string): Promise<{ width: number; height: number }> =>
+    new Promise((resolve, reject) => {
+      Image.getSize(uri, (width, height) => resolve({ width, height }), reject);
+    });
+
+  const applyEdit = useCallback(
+    async (action: () => Promise<{ uri: string }>) => {
+      const uri = images[selectedImageIndex];
+      if (!uri) return;
+      setEditLoading(true);
+      try {
+        const result = await action();
+        setImages((prev) => {
+          const next = [...prev];
+          next[selectedImageIndex] = result.uri;
+          return next;
+        });
+        setEditModalVisible(false);
+        showToast('Photo updated', 'success');
+      } catch (e) {
+        console.warn('Edit failed:', e);
+        showToast('Could not edit photo. Try again.', 'info');
+      } finally {
+        setEditLoading(false);
+      }
+    },
+    [images, selectedImageIndex, showToast]
+  );
+
+  const handleRotate90 = useCallback(() => {
+    const uri = images[selectedImageIndex];
+    if (!uri) return;
+    applyEdit(() =>
+      ImageManipulator.manipulateAsync(uri, [{ rotate: 90 }], { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG })
+    );
+  }, [images, selectedImageIndex, applyEdit]);
+
+  const handleFlipH = useCallback(() => {
+    const uri = images[selectedImageIndex];
+    if (!uri) return;
+    applyEdit(() =>
+      ImageManipulator.manipulateAsync(uri, [{ flip: ImageManipulator.FlipType.Horizontal }], {
+        compress: 0.9,
+        format: ImageManipulator.SaveFormat.JPEG,
+      })
+    );
+  }, [images, selectedImageIndex, applyEdit]);
+
+  const handleFlipV = useCallback(() => {
+    const uri = images[selectedImageIndex];
+    if (!uri) return;
+    applyEdit(() =>
+      ImageManipulator.manipulateAsync(uri, [{ flip: ImageManipulator.FlipType.Vertical }], {
+        compress: 0.9,
+        format: ImageManipulator.SaveFormat.JPEG,
+      })
+    );
+  }, [images, selectedImageIndex, applyEdit]);
+
+  const openCropModal = useCallback(async () => {
+    const uri = images[selectedImageIndex];
+    if (!uri) return;
+    setEditModalVisible(false);
+    try {
+      const size = await getImageDimensions(uri);
+      setCropImageUri(uri);
+      setCropImageSize(size);
+      setCropAspect('1:1');
+      setCropZoom(1);
+      const boxW = SCREEN_WIDTH;
+      const boxH = SCREEN_WIDTH;
+      const scale = Math.max(boxW / size.width, boxH / size.height);
+      setCropPan({
+        x: (boxW - size.width * scale) / 2,
+        y: (boxH - size.height * scale) / 2,
+      });
+      setCropModalVisible(true);
+    } catch (e) {
+      showToast('Could not load image for crop.', 'info');
+    }
+  }, [images, selectedImageIndex, getImageDimensions, showToast]);
+
+  const closeCropModal = useCallback(() => {
+    setCropModalVisible(false);
+    setCropImageUri(null);
+    setCropImageSize(null);
+    setEditModalVisible(true);
+  }, []);
+
+  const getCropBoxSize = useCallback(() => {
+    if (!cropImageSize) return { width: SCREEN_WIDTH, height: SCREEN_WIDTH };
+    const w = SCREEN_WIDTH;
+    if (cropAspect === '1:1') return { width: w, height: w };
+    if (cropAspect === '4:5') return { width: w, height: w * (5 / 4) };
+    return { width: w, height: w * (cropImageSize.height / cropImageSize.width) };
+  }, [cropAspect, cropImageSize]);
+
+  const applyCropFromModal = useCallback(async () => {
+    if (!cropImageUri || !cropImageSize) return;
+    const box = getCropBoxSize();
+    const scale =
+      cropZoom * Math.max(box.width / cropImageSize.width, box.height / cropImageSize.height);
+    const cropW = Math.round(box.width / scale);
+    const cropH = Math.round(box.height / scale);
+    let originX = Math.round(-cropPan.x / scale);
+    let originY = Math.round(-cropPan.y / scale);
+    originX = Math.max(0, Math.min(cropImageSize.width - cropW, originX));
+    originY = Math.max(0, Math.min(cropImageSize.height - cropH, originY));
+    const finalW = Math.min(cropW, cropImageSize.width - originX);
+    const finalH = Math.min(cropH, cropImageSize.height - originY);
+    if (finalW <= 0 || finalH <= 0) return;
+    setCropApplying(true);
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        cropImageUri,
+        [{ crop: { originX, originY, width: finalW, height: finalH } }],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setImages((prev) => {
+        const next = [...prev];
+        next[selectedImageIndex] = result.uri;
+        return next;
+      });
+      setCropModalVisible(false);
+      setCropImageUri(null);
+      setCropImageSize(null);
+      showToast('Photo cropped', 'success');
+    } catch (e) {
+      showToast('Could not crop. Try again.', 'info');
+    } finally {
+      setCropApplying(false);
+    }
+  }, [
+    cropImageUri,
+    cropImageSize,
+    cropPan,
+    cropZoom,
+    getCropBoxSize,
+    selectedImageIndex,
+    showToast,
+  ]);
+
+  const cropPanResponder = useMemo(() => {
+    const box = getCropBoxSize();
+    const imgW = cropImageSize?.width ?? 1;
+    const imgH = cropImageSize?.height ?? 1;
+    const scale = cropZoom * Math.max(box.width / imgW, box.height / imgH);
+    const minX = Math.min(0, box.width - imgW * scale);
+    const minY = Math.min(0, box.height - imgH * scale);
+    const maxX = 0;
+    const maxY = 0;
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (_, g) => {
+        panStartRef.current = { x: cropPan.x, y: cropPan.y };
+      },
+      onPanResponderMove: (_, g) => {
+        const nx = Math.max(minX, Math.min(maxX, panStartRef.current.x + g.dx));
+        const ny = Math.max(minY, Math.min(maxY, panStartRef.current.y + g.dy));
+        setCropPan({ x: nx, y: ny });
+      },
+      onPanResponderRelease: (_, g) => {
+        const nx = Math.max(minX, Math.min(maxX, panStartRef.current.x + g.dx));
+        const ny = Math.max(minY, Math.min(maxY, panStartRef.current.y + g.dy));
+        setCropPan({ x: nx, y: ny });
+      },
+    });
+  }, [cropImageSize, cropZoom, cropAspect, getCropBoxSize, cropPan.x, cropPan.y]);
+
+  useEffect(() => {
+    if (!cropImageSize || !cropModalVisible) return;
+    const box = getCropBoxSize();
+    const scale =
+      cropZoom * Math.max(box.width / cropImageSize.width, box.height / cropImageSize.height);
+    setCropPan({
+      x: (box.width - cropImageSize.width * scale) / 2,
+      y: (box.height - cropImageSize.height * scale) / 2,
+    });
+  }, [cropAspect, cropModalVisible, cropImageSize, getCropBoxSize]);
 
   const handlePinCurrentLocation = async () => {
     setLocationLoading(true);
@@ -482,17 +693,19 @@ const CreatePostScreen: React.FC = () => {
 
     setLoading(true);
     try {
-      const imageToUse = images[selectedImageIndex] || images[0];
-      const base64Image = await convertImageToBase64(imageToUse);
-
-      const imageUrl = await uploadService.uploadImage(base64Image);
+      const imageUrls: string[] = [];
+      for (let i = 0; i < images.length; i++) {
+        const base64Image = await convertImageToBase64(images[i]);
+        const url = await uploadService.uploadImage(base64Image);
+        imageUrls.push(url);
+      }
 
       await postService.createPost({
-        image: imageUrl,
+        images: imageUrls,
         caption,
         activityType,
         distance: distance ? parseFloat(distance) : undefined,
-        duration: duration ? parseInt(duration) : undefined,
+        duration: totalDurationMinutes > 0 ? totalDurationMinutes : undefined,
         location: location ?? undefined,
       });
 
@@ -501,7 +714,8 @@ const CreatePostScreen: React.FC = () => {
       setSelectedImageIndex(0);
       setCaption('');
       setDistance('');
-      setDuration('');
+      setDurationHours('');
+      setDurationMinutes('');
       setLocation(null);
       setShowDetails(false);
       navigation.goBack();
@@ -512,25 +726,23 @@ const CreatePostScreen: React.FC = () => {
     }
   };
 
-  // Calculate pace from distance and duration
+  // Calculate pace from distance and duration (duration in minutes)
   const calculatePace = () => {
-    if (distance && duration) {
+    if (distance && totalDurationMinutes > 0) {
       const dist = parseFloat(distance);
-      const dur = parseFloat(duration);
-      if (dist > 0 && dur > 0) {
-        const paceMin = Math.floor(dur / dist);
-        const paceSec = Math.round(((dur / dist) % 1) * 60);
+      if (dist > 0) {
+        const paceMin = Math.floor(totalDurationMinutes / dist);
+        const paceSec = Math.round(((totalDurationMinutes / dist) % 1) * 60);
         return `${paceMin}:${paceSec.toString().padStart(2, '0')}/km`;
       }
     }
     return null;
   };
 
-  const formatDuration = (mins: string) => {
-    if (!mins) return null;
-    const totalMins = parseInt(mins);
-    const hours = Math.floor(totalMins / 60);
-    const minutes = totalMins % 60;
+  const formatDurationDisplay = () => {
+    if (totalDurationMinutes <= 0) return null;
+    const hours = Math.floor(totalDurationMinutes / 60);
+    const minutes = totalDurationMinutes % 60;
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
     }
@@ -574,7 +786,7 @@ const CreatePostScreen: React.FC = () => {
                 contentContainerStyle={{ width: SCREEN_WIDTH * images.length }}
               >
                 {images.map((uri, index) => (
-                  <View key={index} style={styles.previewImageContainer}>
+                  <View key={`preview-${index}-${uri}`} style={styles.previewImageContainer}>
                     <Image source={{ uri }} style={styles.previewImage} resizeMode="cover" />
                   </View>
                 ))}
@@ -596,7 +808,7 @@ const CreatePostScreen: React.FC = () => {
               )}
               
               {/* Stats Overlay - Run Barbie style */}
-              {(distance || duration) && (
+              {(distance || durationHours || durationMinutes) && (
                 <View style={styles.statsOverlay}>
                   <View style={styles.statsHeader}>
                     <Ionicons name="footsteps" size={16} color="#fff" />
@@ -609,10 +821,10 @@ const CreatePostScreen: React.FC = () => {
                         <Text style={styles.statValue}>{distance} km</Text>
                       </View>
                     )}
-                    {duration && (
+                    {formatDurationDisplay() && (
                       <View style={styles.statItem}>
                         <Text style={styles.statLabel}>Time</Text>
-                        <Text style={styles.statValue}>{formatDuration(duration)}</Text>
+                        <Text style={styles.statValue}>{formatDurationDisplay()}</Text>
                       </View>
                     )}
                     {calculatePace() && (
@@ -624,51 +836,188 @@ const CreatePostScreen: React.FC = () => {
                   </View>
                 </View>
               )}
+              <TouchableOpacity
+                style={styles.editPhotoButton}
+                onPress={() => setEditModalVisible(true)}
+                disabled={editLoading}
+              >
+                <Ionicons name="create-outline" size={20} color="#fff" />
+                <Text style={styles.editPhotoButtonText}>Edit photo</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.previewPlaceholder}>
-              <Ionicons name="image-outline" size={64} color="#666" />
-              <Text style={styles.previewPlaceholderText}>Select photos</Text>
+              <Ionicons name="image-outline" size={64} color="#ccc" />
+              <Text style={styles.previewPlaceholderText}>Your photo will appear here</Text>
+              <Text style={styles.previewPlaceholderSubtext}>Take a photo or choose from gallery below</Text>
             </View>
           )}
         </View>
 
-        {/* Gallery Section */}
-        <View style={styles.gallerySection}>
-          <View style={styles.galleryHeader}>
-            <View style={styles.galleryHeaderLeft}>
-              <Text style={styles.galleryHeaderText}>Recents</Text>
-              <Ionicons name="chevron-down" size={16} color="#999" />
-            </View>
-            <TouchableOpacity onPress={pickImage}>
-              <Text style={styles.selectButton}>Select</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.galleryGrid}>
-            {/* Camera button */}
-            <TouchableOpacity
-              style={styles.galleryItem}
-              onPress={takePhoto}
-              activeOpacity={0.8}
-            >
-              <View style={styles.cameraButton}>
-                <Ionicons name="camera" size={24} color="#666" />
+        {/* Add photo – primary actions */}
+        <View style={styles.addPhotoSection}>
+          <Text style={styles.addPhotoLabel}>Add photo</Text>
+          <View style={styles.addPhotoRow}>
+            <TouchableOpacity style={styles.addPhotoCard} onPress={takePhoto} activeOpacity={0.8}>
+              <View style={styles.addPhotoIconWrap}>
+                <Ionicons name="camera" size={28} color="#000" />
               </View>
+              <Text style={styles.addPhotoCardLabel}>Take photo</Text>
             </TouchableOpacity>
-
-            {/* Gallery selection button */}
-            <TouchableOpacity
-              style={styles.galleryItem}
-              onPress={pickImage}
-              activeOpacity={0.8}
-            >
-              <View style={styles.galleryButton}>
-                <Ionicons name="images" size={24} color="#666" />
+            <TouchableOpacity style={styles.addPhotoCard} onPress={pickImage} activeOpacity={0.8}>
+              <View style={styles.addPhotoIconWrap}>
+                <Ionicons name="images" size={28} color="#000" />
               </View>
+              <Text style={styles.addPhotoCardLabel}>Choose from gallery</Text>
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Recent photos – only when we have any (e.g. iOS) */}
+        {recentPhotos.length > 0 ? (
+          <View style={styles.recentSection}>
+            <Text style={styles.recentSectionLabel}>Recent photos</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.recentScrollContent}
+            >
+              {recentPhotos.slice(0, 15).map((uri, index) => (
+                <TouchableOpacity
+                  key={`${uri}-${index}`}
+                  style={styles.recentThumb}
+                  onPress={() => pickFromRecent(uri)}
+                  activeOpacity={0.8}
+                >
+                  <Image source={{ uri }} style={styles.recentThumbImage} resizeMode="cover" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
+          <View style={styles.editModalOverlay}>
+            <View style={styles.editModalContent}>
+              <Text style={styles.editModalTitle}>Edit photo</Text>
+              {editLoading ? (
+                <ActivityIndicator size="small" color="#0095F6" style={{ marginVertical: 16 }} />
+              ) : (
+                <>
+                  <TouchableOpacity style={styles.editOption} onPress={handleRotate90}>
+                    <Ionicons name="refresh" size={22} color="#333" />
+                    <Text style={styles.editOptionText}>Rotate 90°</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.editOption} onPress={openCropModal}>
+                    <Ionicons name="crop-outline" size={22} color="#333" />
+                    <Text style={styles.editOptionText}>Crop</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.editOption} onPress={handleFlipH}>
+                    <Ionicons name="swap-horizontal" size={22} color="#333" />
+                    <Text style={styles.editOptionText}>Flip horizontal</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.editOption} onPress={handleFlipV}>
+                    <Ionicons name="swap-vertical" size={22} color="#333" />
+                    <Text style={styles.editOptionText}>Flip vertical</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+              <TouchableOpacity style={styles.editModalCancel} onPress={() => setEditModalVisible(false)}>
+                <Text style={styles.editModalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Crop modal – Instagram-style pan + zoom + aspect ratio */}
+        <Modal
+          visible={cropModalVisible}
+          animationType="slide"
+          onRequestClose={closeCropModal}
+          statusBarTranslucent
+        >
+          <View style={styles.cropModalContainer}>
+            <View style={styles.cropHeader}>
+              <TouchableOpacity onPress={closeCropModal} style={styles.cropHeaderBtn}>
+                <Text style={styles.cropHeaderCancel}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={styles.cropHeaderTitle}>Crop</Text>
+              <TouchableOpacity
+                onPress={applyCropFromModal}
+                style={styles.cropHeaderBtn}
+                disabled={cropApplying}
+              >
+                {cropApplying ? (
+                  <ActivityIndicator size="small" color="#0095F6" />
+                ) : (
+                  <Text style={styles.cropHeaderDone}>Done</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            {cropImageUri && cropImageSize && (
+              <>
+                <View style={styles.cropAspectPills}>
+                  {(['original', '1:1', '4:5'] as const).map((aspect) => (
+                    <TouchableOpacity
+                      key={aspect}
+                      style={[styles.cropAspectPill, cropAspect === aspect && styles.cropAspectPillActive]}
+                      onPress={() => setCropAspect(aspect)}
+                    >
+                      <Text style={[styles.cropAspectPillText, cropAspect === aspect && styles.cropAspectPillTextActive]}>
+                        {aspect === 'original' ? 'Original' : aspect === '1:1' ? '1:1' : '4:5'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {(() => {
+                  const box = getCropBoxSize();
+                  const scale =
+                    cropZoom *
+                    Math.max(box.width / cropImageSize.width, box.height / cropImageSize.height);
+                  return (
+                    <>
+                      <View
+                        style={[styles.cropBoxContainer, { width: box.width, height: box.height }]}
+                        {...cropPanResponder.panHandlers}
+                      >
+                        <View style={[styles.cropBoxInner, { width: box.width, height: box.height }]} collapsable={false}>
+                          <Image
+                            source={{ uri: cropImageUri }}
+                            style={[
+                              styles.cropImage,
+                              {
+                                width: cropImageSize.width * scale,
+                                height: cropImageSize.height * scale,
+                                transform: [{ translateX: cropPan.x }, { translateY: cropPan.y }],
+                              },
+                            ]}
+                            resizeMode="stretch"
+                          />
+                        </View>
+                        <View style={[styles.cropFrame, { width: box.width, height: box.height }]} pointerEvents="none" />
+                      </View>
+                    </>
+                  );
+                })()}
+                <View style={styles.cropZoomRow}>
+                  <TouchableOpacity
+                    style={styles.cropZoomBtn}
+                    onPress={() => setCropZoom((z) => Math.max(1, z - 0.25))}
+                  >
+                    <Ionicons name="remove" size={28} color="#fff" />
+                  </TouchableOpacity>
+                  <Text style={styles.cropZoomLabel}>{cropZoom.toFixed(1)}×</Text>
+                  <TouchableOpacity
+                    style={styles.cropZoomBtn}
+                    onPress={() => setCropZoom((z) => Math.min(3, z + 0.25))}
+                  >
+                    <Ionicons name="add" size={28} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -724,7 +1073,7 @@ const CreatePostScreen: React.FC = () => {
               >
                 {images.map((uri, index) => (
                   <Image
-                    key={index}
+                    key={`edit-preview-${index}-${uri}`}
                     source={{ uri }}
                     style={styles.editPreviewImage}
                     resizeMode="cover"
@@ -969,6 +1318,127 @@ const CreatePostScreen: React.FC = () => {
               </View>
             </Modal>
 
+            <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
+              <View style={styles.editModalOverlay}>
+                <View style={styles.editModalContent}>
+                  <Text style={styles.editModalTitle}>Edit photo</Text>
+                  {editLoading ? (
+                    <ActivityIndicator size="small" color="#0095F6" style={{ marginVertical: 16 }} />
+                  ) : (
+                    <>
+                      <TouchableOpacity style={styles.editOption} onPress={handleRotate90}>
+                        <Ionicons name="refresh" size={22} color="#333" />
+                        <Text style={styles.editOptionText}>Rotate 90°</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.editOption} onPress={openCropModal}>
+                        <Ionicons name="crop-outline" size={22} color="#333" />
+                        <Text style={styles.editOptionText}>Crop</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.editOption} onPress={handleFlipH}>
+                        <Ionicons name="swap-horizontal" size={22} color="#333" />
+                        <Text style={styles.editOptionText}>Flip horizontal</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.editOption} onPress={handleFlipV}>
+                        <Ionicons name="swap-vertical" size={22} color="#333" />
+                        <Text style={styles.editOptionText}>Flip vertical</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                  <TouchableOpacity style={styles.editModalCancel} onPress={() => setEditModalVisible(false)}>
+                    <Text style={styles.editModalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Modal>
+
+            {/* Crop modal – same as step 1 */}
+            <Modal
+              visible={cropModalVisible}
+              animationType="slide"
+              onRequestClose={closeCropModal}
+              statusBarTranslucent
+            >
+              <View style={styles.cropModalContainer}>
+                <View style={styles.cropHeader}>
+                  <TouchableOpacity onPress={closeCropModal} style={styles.cropHeaderBtn}>
+                    <Text style={styles.cropHeaderCancel}>Cancel</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.cropHeaderTitle}>Crop</Text>
+                  <TouchableOpacity
+                    onPress={applyCropFromModal}
+                    style={styles.cropHeaderBtn}
+                    disabled={cropApplying}
+                  >
+                    {cropApplying ? (
+                      <ActivityIndicator size="small" color="#0095F6" />
+                    ) : (
+                      <Text style={styles.cropHeaderDone}>Done</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {cropImageUri && cropImageSize && (
+                  <>
+                    <View style={styles.cropAspectPills}>
+                      {(['original', '1:1', '4:5'] as const).map((aspect) => (
+                        <TouchableOpacity
+                          key={aspect}
+                          style={[styles.cropAspectPill, cropAspect === aspect && styles.cropAspectPillActive]}
+                          onPress={() => setCropAspect(aspect)}
+                        >
+                          <Text style={[styles.cropAspectPillText, cropAspect === aspect && styles.cropAspectPillTextActive]}>
+                            {aspect === 'original' ? 'Original' : aspect === '1:1' ? '1:1' : '4:5'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    {(() => {
+                      const box = getCropBoxSize();
+                      const scale =
+                        cropZoom *
+                        Math.max(box.width / cropImageSize.width, box.height / cropImageSize.height);
+                      return (
+                        <View
+                          style={[styles.cropBoxContainer, { width: box.width, height: box.height }]}
+                          {...cropPanResponder.panHandlers}
+                        >
+                          <View style={[styles.cropBoxInner, { width: box.width, height: box.height }]} collapsable={false}>
+                            <Image
+                              source={{ uri: cropImageUri }}
+                              style={[
+                                styles.cropImage,
+                                {
+                                  width: cropImageSize.width * scale,
+                                  height: cropImageSize.height * scale,
+                                  transform: [{ translateX: cropPan.x }, { translateY: cropPan.y }],
+                                },
+                              ]}
+                              resizeMode="stretch"
+                            />
+                          </View>
+                          <View style={[styles.cropFrame, { width: box.width, height: box.height }]} pointerEvents="none" />
+                        </View>
+                      );
+                    })()}
+                    <View style={styles.cropZoomRow}>
+                      <TouchableOpacity
+                        style={styles.cropZoomBtn}
+                        onPress={() => setCropZoom((z) => Math.max(1, z - 0.25))}
+                      >
+                        <Ionicons name="remove" size={28} color="#fff" />
+                      </TouchableOpacity>
+                      <Text style={styles.cropZoomLabel}>{cropZoom.toFixed(1)}×</Text>
+                      <TouchableOpacity
+                        style={styles.cropZoomBtn}
+                        onPress={() => setCropZoom((z) => Math.min(3, z + 0.25))}
+                      >
+                        <Ionicons name="add" size={28} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </View>
+            </Modal>
+
             {/* Stats Inputs */}
             <View style={styles.statsInputRow}>
               <View style={styles.statsInputHalf}>
@@ -983,15 +1453,29 @@ const CreatePostScreen: React.FC = () => {
                 />
               </View>
               <View style={styles.statsInputHalf}>
-                <Text style={styles.editLabel}>Duration (min)</Text>
-                <TextInput
-                  style={styles.statsInput}
-                  placeholder="0"
-                  placeholderTextColor="#999"
-                  value={duration}
-                  onChangeText={setDuration}
-                  keyboardType="number-pad"
-                />
+                <Text style={styles.editLabel}>Duration</Text>
+                <View style={styles.durationRow}>
+                  <TextInput
+                    style={styles.durationInput}
+                    placeholder="0"
+                    placeholderTextColor="#999"
+                    value={durationHours}
+                    onChangeText={setDurationHours}
+                    keyboardType="number-pad"
+                    maxLength={3}
+                  />
+                  <Text style={styles.durationUnit}>h</Text>
+                  <TextInput
+                    style={styles.durationInput}
+                    placeholder="0"
+                    placeholderTextColor="#999"
+                    value={durationMinutes}
+                    onChangeText={setDurationMinutes}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                  <Text style={styles.durationUnit}>m</Text>
+                </View>
               </View>
             </View>
           </View>
@@ -1103,6 +1587,167 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
+  editPhotoButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    gap: 6,
+  },
+  editPhotoButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  editModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  editModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 320,
+  },
+  editModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  editOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#f5f5f5',
+    marginBottom: 8,
+    gap: 12,
+  },
+  editOptionText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  editModalCancel: {
+    marginTop: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  editModalCancelText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
+  },
+  cropModalContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    paddingTop: Platform.OS === 'ios' ? 50 : 40,
+  },
+  cropHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.15)',
+  },
+  cropHeaderBtn: {
+    minWidth: 70,
+    alignItems: Platform.OS === 'ios' ? 'flex-start' : 'center',
+  },
+  cropHeaderCancel: {
+    fontSize: 16,
+    color: '#fff',
+  },
+  cropHeaderTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  cropHeaderDone: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0095F6',
+  },
+  cropAspectPills: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 16,
+  },
+  cropAspectPill: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  cropAspectPillActive: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  cropAspectPillText: {
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  cropAspectPillTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  cropBoxContainer: {
+    alignSelf: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#111',
+  },
+  cropBoxInner: {
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  cropImage: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+  },
+  cropFrame: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  cropZoomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 24,
+  },
+  cropZoomBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cropZoomLabel: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+    minWidth: 44,
+    textAlign: 'center',
+  },
   previewPlaceholder: {
     flex: 1,
     justifyContent: 'center',
@@ -1112,6 +1757,85 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: '#666',
+  },
+  previewPlaceholderSubtext: {
+    marginTop: 6,
+    fontSize: 14,
+    color: '#999',
+  },
+  // Add photo – primary actions
+  addPhotoSection: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    backgroundColor: '#fff',
+  },
+  addPhotoLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 12,
+  },
+  addPhotoRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  addPhotoCard: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addPhotoIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  addPhotoCardLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+  },
+  // Recent photos (only when we have any)
+  recentSection: {
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'android' ? 24 : 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    backgroundColor: '#fff',
+  },
+  recentSectionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  recentScrollContent: {
+    paddingHorizontal: 16,
+    paddingRight: 24,
+    flexDirection: 'row',
+  },
+  recentThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginRight: 8,
+  },
+  recentThumbImage: {
+    width: '100%',
+    height: '100%',
   },
   // Stats Overlay
   statsOverlay: {
@@ -1152,72 +1876,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#fff',
-  },
-  // Gallery Section
-  gallerySection: {
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#EEE',
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'android' ? 20 : 12,
-  },
-  galleryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  galleryHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  galleryHeaderText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#000',
-    marginRight: 6,
-  },
-  selectButton: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0095F6',
-  },
-  galleryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
-  },
-  galleryItem: {
-    width: GRID_SIZE,
-    height: GRID_SIZE,
-    marginRight: 4,
-    marginBottom: 4,
-  },
-  cameraButton: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  galleryButton: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  galleryImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 4,
   },
   // Edit Form
   editPreviewContainer: {
@@ -1564,6 +2222,29 @@ const styles = StyleSheet.create({
   statsInputHalf: {
     flex: 1,
     marginRight: 8,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    paddingHorizontal: 8,
+  },
+  durationInput: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    fontSize: 14,
+    color: '#000',
+    minWidth: 0,
+  },
+  durationUnit: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 4,
+    marginRight: 4,
   },
   statsInput: {
     backgroundColor: '#F5F5F5',

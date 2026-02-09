@@ -1,7 +1,8 @@
 import React, { createContext, useState, useCallback, useContext, useEffect } from 'react';
 import { notificationService } from '../services/api';
+import { useAuth } from './AuthContext';
 
-export type NotificationType = 'like' | 'comment' | 'follow';
+export type NotificationType = 'like' | 'comment' | 'follow' | 'reel_like' | 'mention' | 'tag';
 
 export interface NotificationItem {
   id: string;
@@ -14,6 +15,7 @@ export interface NotificationItem {
   read: boolean;
   postImage?: string;
   postId?: string;
+  reelId?: string;
 }
 
 function updateTimeAgo(ts: number): string {
@@ -27,7 +29,7 @@ function updateTimeAgo(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-function mapApiToItem(api: { id: string; type: NotificationType; username: string; avatar?: string; text: string; timestamp: number; read: boolean; postId?: string; postImage?: string }): NotificationItem {
+function mapApiToItem(api: { id: string; type: NotificationType; username: string; avatar?: string; text: string; timestamp: number; read: boolean; postId?: string; postImage?: string; reelId?: string }): NotificationItem {
   return {
     id: api.id,
     type: api.type,
@@ -39,6 +41,7 @@ function mapApiToItem(api: { id: string; type: NotificationType; username: strin
     read: api.read,
     postId: api.postId,
     postImage: api.postImage,
+    reelId: api.reelId,
   };
 }
 
@@ -55,10 +58,16 @@ interface NotificationsContextType {
 const NotificationsContext = createContext<NotificationsContextType | undefined>(undefined);
 
 export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadNotifications = useCallback(async () => {
+    if (!user) {
+      setNotifications([]);
+      setLoading(false);
+      return;
+    }
     try {
       const list = await notificationService.getNotifications();
       setNotifications(list.map(mapApiToItem));
@@ -68,7 +77,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     loadNotifications();

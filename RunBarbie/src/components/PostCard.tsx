@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, memo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
   Pressable,
   Linking,
   ScrollView,
+  TextInput,
+  PanResponder,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Post } from '../types';
@@ -22,7 +24,9 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { FeedStackParamList } from '../navigation/types';
 import { useToast } from '../context/ToastContext';
-import { userService } from '../services/api';
+import { postService, userService } from '../services/api';
+import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
+import ConfirmModal from './ConfirmModal';
 
 interface PostCardProps {
   post: Post;
@@ -32,10 +36,14 @@ interface PostCardProps {
   onBookmark?: (postId: string) => void;
   onHidePost?: (postId: string) => void;
   onMuteUser?: (userId: string) => void;
+  onDelete?: (postId: string) => void;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const IMAGE_ASPECT_RATIO = 1;
+const MIN_SCALE = 1;
+const MAX_SCALE = 3;
+const DOUBLE_TAP_DELAY = 300;
 
 const ACTIVITY_CONFIG: Record<string, { icon: keyof typeof MaterialCommunityIcons.glyphMap; color: string; label: string }> = {
   run: { icon: 'run-fast', color: '#FF69B4', label: 'Run' },
@@ -48,15 +56,208 @@ const ACTIVITY_CONFIG: Record<string, { icon: keyof typeof MaterialCommunityIcon
 type PostCardNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
 
 /**
+ * ZoomableImage - Component that supports pinch-to-zoom with smooth animations and auto-reset
+ */
+const ZoomableImage: React.FC<{
+  uri: string;
+  style: any;
+  onPress: () => void;
+  onDoubleTap?: () => void;
+}> = ({ uri, style, onPress, onDoubleTap }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const lastTap = useRef(0);
+  const lastScale = useRef(1);
+  const lastTranslate = useRef({ x: 0, y: 0 });
+  const isZoomed = useRef(false);
+  const initialDistance = useRef<number | null>(null);
+  const initialScale = useRef(1);
+  const scaleAnimation = useRef<Animated.CompositeAnimation | null>(null);
+
+  const resetZoom = useCallback(() => {
+    // Cancel any ongoing animation
+    if (scaleAnimation.current) {
+      scaleAnimation.current.stop();
+    }
+    
+    // Smooth spring animation back to original size
+    scaleAnimation.current = Animated.parallel([
+      Animated.spring(scale, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }),
+      Animated.spring(translateX, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }),
+    ]);
+    
+    scaleAnimation.current.start(() => {
+      scaleAnimation.current = null;
+    });
+    
+    lastScale.current = 1;
+    lastTranslate.current = { x: 0, y: 0 };
+    isZoomed.current = false;
+  }, [scale, translateX, translateY]);
+
+  const handleDoubleTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTap.current < DOUBLE_TAP_DELAY) {
+      lastTap.current = 0;
+      if (onDoubleTap) {
+        onDoubleTap();
+      }
+      if (isZoomed.current) {
+        resetZoom();
+      } else {
+        isZoomed.current = true;
+        lastScale.current = 2;
+        // Cancel any ongoing animation
+        if (scaleAnimation.current) {
+          scaleAnimation.current.stop();
+        }
+        scaleAnimation.current = Animated.spring(scale, {
+          toValue: 2,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        });
+        scaleAnimation.current.start(() => {
+          scaleAnimation.current = null;
+        });
+      }
+    } else {
+      lastTap.current = now;
+      if (!isZoomed.current) {
+        onPress();
+      }
+    }
+  }, [onPress, onDoubleTap, resetZoom, scale]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        // Check if it's a pinch gesture (2 touches)
+        if (evt.nativeEvent.touches.length === 2) {
+          return true;
+        }
+        // Allow panning when zoomed
+        return isZoomed.current;
+      },
+      onPanResponderGrant: (evt) => {
+        // Cancel any ongoing animation
+        if (scaleAnimation.current) {
+          scaleAnimation.current.stop();
+          scaleAnimation.current = null;
+        }
+        
+        if (evt.nativeEvent.touches.length === 2) {
+          // Pinch gesture started
+          const touch1 = evt.nativeEvent.touches[0];
+          const touch2 = evt.nativeEvent.touches[1];
+          initialDistance.current = Math.sqrt(
+            Math.pow(touch2.pageX - touch1.pageX, 2) + Math.pow(touch2.pageY - touch1.pageY, 2)
+          );
+          initialScale.current = lastScale.current;
+        } else {
+          // Pan gesture started
+          scale.setOffset(lastScale.current);
+          translateX.setOffset(lastTranslate.current.x);
+          translateY.setOffset(lastTranslate.current.y);
+        }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (evt.nativeEvent.touches.length === 2 && initialDistance.current !== null) {
+          // Handle pinch gesture with smooth scaling
+          const touch1 = evt.nativeEvent.touches[0];
+          const touch2 = evt.nativeEvent.touches[1];
+          const currentDistance = Math.sqrt(
+            Math.pow(touch2.pageX - touch1.pageX, 2) + Math.pow(touch2.pageY - touch1.pageY, 2)
+          );
+          
+          const newScale = Math.max(
+            MIN_SCALE,
+            Math.min(MAX_SCALE, (initialScale.current * currentDistance) / initialDistance.current)
+          );
+          
+          // Use setValue for immediate, smooth updates during pinch
+          scale.setValue(newScale);
+          isZoomed.current = newScale > 1.05;
+        } else if (isZoomed.current) {
+          // Handle pan gesture when zoomed - smooth panning
+          translateX.setValue(gestureState.dx);
+          translateY.setValue(gestureState.dy);
+        }
+      },
+      onPanResponderRelease: () => {
+        scale.flattenOffset();
+        translateX.flattenOffset();
+        translateY.flattenOffset();
+        
+        const currentScale = (scale as any)._value || lastScale.current;
+        lastScale.current = Math.max(MIN_SCALE, Math.min(MAX_SCALE, currentScale));
+        lastTranslate.current = {
+          x: (translateX as any)._value || 0,
+          y: (translateY as any)._value || 0,
+        };
+        
+        // Always reset zoom smoothly when released
+        resetZoom();
+        
+        // Reset initial distance for next pinch
+        initialDistance.current = null;
+      },
+    })
+  ).current;
+
+  return (
+    <View style={style} {...panResponder.panHandlers}>
+      <TouchableWithoutFeedback onPress={handleDoubleTap}>
+        <Animated.View
+          style={{
+            width: '100%',
+            height: '100%',
+            transform: [
+              { scale },
+              { translateX },
+              { translateY },
+            ],
+          }}
+        >
+          <Image source={{ uri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        </Animated.View>
+      </TouchableWithoutFeedback>
+    </View>
+  );
+};
+
+/**
  * PostCard - Instagram-style post with activity badge, timestamp, double-tap like, comment count, shadow
  */
-const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved: savedProp = false, onBookmark, onHidePost, onMuteUser }) => {
+const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved: savedProp = false, onBookmark, onHidePost, onMuteUser, onDelete }) => {
   const imageUrls = (post.images && post.images.length > 0) ? post.images : [post.image];
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [showHeart, setShowHeart] = useState(false);
   const [savedLocal, setSavedLocal] = useState(false);
   const saved = onBookmark ? savedProp : savedLocal;
   const [optionsVisible, setOptionsVisible] = useState(false);
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [editCaptionVisible, setEditCaptionVisible] = useState(false);
+  const [editedCaption, setEditedCaption] = useState(post.caption);
+  const [editSaving, setEditSaving] = useState(false);
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
   const lastTap = useRef(0);
@@ -200,6 +401,49 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
     navigation.navigate('Report', { postId: post._id });
   };
 
+  const handleEditCaption = () => {
+    if (!isOwnPost) return;
+    setEditedCaption(post.caption);
+    setOptionsVisible(false);
+    setEditCaptionVisible(true);
+  };
+
+  const handleSaveCaption = async () => {
+    if (!isOwnPost) return;
+    const trimmed = editedCaption.trim();
+    if (!trimmed) {
+      setEditedCaption(post.caption);
+      setEditCaptionVisible(false);
+      return;
+    }
+    try {
+      setEditSaving(true);
+      const updated = await postService.updatePost(post._id, { caption: trimmed });
+      // Optimistically update caption on the current card
+      (post as Post).caption = updated.caption;
+      setEditCaptionVisible(false);
+      showToast('Caption updated', 'success');
+    } catch (e) {
+      showToast('Could not update caption', 'error');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const postOwnerId = (post.user && (post.user as { _id?: string })._id) || post.userId;
+  const isOwnPost = !!currentUserId && !!postOwnerId && postOwnerId === currentUserId;
+
+  const handleDelete = () => {
+    setOptionsVisible(false);
+    if (!isOwnPost || !onDelete) return;
+    setDeleteConfirmVisible(true);
+  };
+
+  const handleConfirmDelete = () => {
+    setDeleteConfirmVisible(false);
+    onDelete?.(post._id);
+  };
+
   const handleViewOnMap = () => {
     if (!post.location) return;
     const { latitude, longitude } = post.location;
@@ -216,13 +460,10 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
       {/* Header: Profile, username, activity badge, timestamp, menu */}
       <View style={styles.header}>
         <View style={styles.userInfo}>
-          {safeUser.avatar ? (
-            <Image source={{ uri: safeUser.avatar }} style={styles.profilePicture} />
-          ) : (
-            <View style={[styles.profilePicture, styles.profilePlaceholder]}>
-              <Ionicons name="person" size={20} color="#999" />
-            </View>
-          )}
+          <Image
+            source={{ uri: safeUser.avatar || DEFAULT_AVATAR_URI }}
+            style={styles.profilePicture}
+          />
           <View style={styles.headerTextRow}>
             <Text style={styles.username}>{safeUser.username}</Text>
             <View style={[styles.activityBadge, { backgroundColor: `${activityConfig.color}20` }]}>
@@ -254,25 +495,29 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
             style={styles.imageScroll}
           >
             {imageUrls.map((uri, index) => (
-              <TouchableWithoutFeedback key={index} onPress={handleImagePress}>
-                <View style={styles.imagePage}>
-                  <Image
-                    source={{ uri }}
-                    style={[styles.image, { width: SCREEN_WIDTH, height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
-                    resizeMode="cover"
-                  />
-                </View>
-              </TouchableWithoutFeedback>
+              <View key={index} style={styles.imagePage}>
+                <ZoomableImage
+                  uri={uri}
+                  style={[styles.image, { width: SCREEN_WIDTH, height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
+                  onPress={handleImagePress}
+                  onDoubleTap={() => {
+                    handleImagePress();
+                    onLike(post._id);
+                  }}
+                />
+              </View>
             ))}
           </ScrollView>
         ) : (
-          <TouchableWithoutFeedback onPress={handleImagePress}>
-            <Image
-              source={{ uri: imageUrls[0] }}
-              style={[styles.image, { height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
-              resizeMode="cover"
-            />
-          </TouchableWithoutFeedback>
+          <ZoomableImage
+            uri={imageUrls[0]}
+            style={[styles.image, { height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
+            onPress={handleImagePress}
+            onDoubleTap={() => {
+              handleImagePress();
+              onLike(post._id);
+            }}
+          />
         )}
         {showHeart && (
           <Animated.View
@@ -437,6 +682,19 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
                 <Text style={styles.sheetItemText}>Hide this post</Text>
               </TouchableOpacity>
 
+              {isOwnPost && (
+                <TouchableOpacity style={styles.sheetItem} onPress={handleEditCaption} activeOpacity={0.8}>
+                  <Ionicons name="create-outline" size={18} color="#000" style={styles.sheetItemIcon} />
+                  <Text style={styles.sheetItemText}>Edit caption</Text>
+                </TouchableOpacity>
+              )}
+
+              {isOwnPost && onDelete ? (
+                <TouchableOpacity style={[styles.sheetItem, styles.sheetItemDestructive]} activeOpacity={0.8} onPress={handleDelete}>
+                  <Ionicons name="trash-outline" size={18} color="#FF3B30" style={styles.sheetItemIcon} />
+                  <Text style={[styles.sheetItemText, styles.sheetItemTextDestructive]}>Delete</Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
                 style={[styles.sheetItem, styles.sheetItemDestructive]}
                 activeOpacity={0.8}
@@ -449,6 +707,69 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
           </View>
         </Pressable>
       </Modal>
+
+      <ConfirmModal
+        visible={deleteConfirmVisible}
+        onClose={() => setDeleteConfirmVisible(false)}
+        title="Delete post?"
+        message="Are you sure? This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDelete}
+        destructive
+        icon="trash-outline"
+      />
+
+      {/* Inline edit caption modal */}
+      <Modal
+        visible={editCaptionVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !editSaving && setEditCaptionVisible(false)}
+      >
+        <Pressable
+          style={styles.editBackdrop}
+          onPress={() => {
+            if (!editSaving) setEditCaptionVisible(false);
+          }}
+        >
+          <View style={styles.editCard} onStartShouldSetResponder={() => true}>
+            <Text style={styles.editTitle}>Edit caption</Text>
+            <Text style={styles.editSubtitle}>Tweak your story without deleting the post.</Text>
+            <View style={styles.editInputWrapper}>
+              <TextInput
+                style={styles.editInput}
+                placeholder="Write a caption..."
+                placeholderTextColor="#999"
+                multiline
+                value={editedCaption}
+                onChangeText={setEditedCaption}
+                editable={!editSaving}
+              />
+            </View>
+            <View style={styles.editButtonsRow}>
+              <TouchableOpacity
+                style={styles.editCancelButton}
+                activeOpacity={0.7}
+                onPress={() => !editSaving && setEditCaptionVisible(false)}
+              >
+                <Text style={styles.editCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.editSaveButton}
+                activeOpacity={0.7}
+                onPress={handleSaveCaption}
+                disabled={editSaving}
+              >
+                {editSaving ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.editSaveText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -456,7 +777,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#fff',
-    marginBottom: 12,
+    marginBottom: 0,
     borderRadius: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -638,23 +959,28 @@ const styles = StyleSheet.create({
   },
   sheetBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   sheetContainer: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingTop: 8,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 12,
   },
   sheetHandle: {
     alignSelf: 'center',
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#DDD',
-    marginBottom: 12,
+    backgroundColor: '#D0D0D0',
+    marginBottom: 16,
   },
   sheetIconRow: {
     flexDirection: 'row',
@@ -693,6 +1019,79 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     fontWeight: '600',
   },
+  editBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  editCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  editTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  editSubtitle: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 14,
+  },
+  editInputWrapper: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 16,
+    maxHeight: 140,
+  },
+  editInput: {
+    fontSize: 14,
+    color: '#000',
+  },
+  editButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  editCancelButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#f2f2f2',
+  },
+  editCancelText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+  },
+  editSaveButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#0095F6',
+  },
+  editSaveText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
 });
 
-export default PostCard;
+export default memo(PostCard);

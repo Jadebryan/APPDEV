@@ -21,20 +21,21 @@ import { ActivityType } from '../types';
 import { useStories } from '../context/StoriesContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { uploadService, storyService } from '../services/api';
+import { useUpload } from '../context/UploadContext';
+import { postService } from '../services/api';
 
 const ACTIVITY_OPTIONS: ActivityType[] = ['run', 'hike', 'cycle', 'walk', 'other'];
 
 const StoryCaptureScreen: React.FC = () => {
   const navigation = useNavigation();
-  const { addOrUpdateMyStory, stories } = useStories();
+  const { stories } = useStories();
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { runStoryUpload } = useUpload();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [activityType, setActivityType] = useState<ActivityType>('run');
   const [usedCaptions, setUsedCaptions] = useState<Set<string>>(new Set());
-  const [posting, setPosting] = useState(false);
 
   // Hide bottom tabs when StoryCaptureScreen is open. Use a short delay so that when
   // navigating from CreatePost → Story, we re-hide after CreatePost's cleanup runs.
@@ -254,23 +255,10 @@ const StoryCaptureScreen: React.FC = () => {
     }
   };
 
-  const handleShare = async () => {
+  const handleShare = () => {
     if (!imageUri) return;
-    setPosting(true);
-    try {
-      let mediaUri = imageUri;
-      const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
-      const base64Image = `data:image/jpeg;base64,${base64}`;
-      mediaUri = await uploadService.uploadStoryImage(base64Image);
-      await storyService.createStory({ mediaUri, caption, activityType });
-      addOrUpdateMyStory({ mediaUri, caption, activityType });
-      showToast('Story shared!', 'success');
-      navigation.goBack();
-    } catch (e: any) {
-      showToast(e?.message || 'Failed to share story', 'error');
-    } finally {
-      setPosting(false);
-    }
+    runStoryUpload({ imageUri, caption, activityType });
+    navigation.goBack();
   };
 
   const hasImage = !!imageUri;
@@ -384,16 +372,12 @@ const StoryCaptureScreen: React.FC = () => {
 
         <View style={styles.footer} pointerEvents="box-none">
           <TouchableOpacity
-            style={[styles.shareButton, (!hasImage || posting) && styles.shareButtonDisabled]}
-            activeOpacity={hasImage && !posting ? 0.9 : 1}
+            style={[styles.shareButton, !hasImage && styles.shareButtonDisabled]}
+            activeOpacity={hasImage ? 0.9 : 1}
             onPress={handleShare}
-            disabled={!hasImage || posting}
+            disabled={!hasImage}
           >
-            {posting ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.shareText}>Share to story</Text>
-            )}
+            <Text style={styles.shareText}>Share to story</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -438,10 +422,12 @@ const styles = StyleSheet.create({
     paddingBottom: 28, // extra so fields don't sit under footer
   },
   previewWrapper: {
+    alignSelf: 'center',
+    height: 240,
+    aspectRatio: 9 / 16,
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#111',
-    aspectRatio: 9 / 16,
   },
   previewImage: {
     width: '100%',
@@ -452,7 +438,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 80,
+    height: 56,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   previewOverlayRow: {

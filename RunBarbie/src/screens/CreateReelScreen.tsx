@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,16 +10,18 @@ import {
   ScrollView,
   useWindowDimensions,
   Platform,
+  Modal,
+  Slider,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useAuth } from '../context/AuthContext';
-import { useToast } from '../context/ToastContext';
-import { reelService, uploadService } from '../services/api';
 import { ActivityType } from '../types';
+import { useUpload } from '../context/UploadContext';
 
 const ACTIVITY_TYPES: ActivityType[] = ['run', 'hike', 'cycle', 'walk', 'other'];
 const ACTIVITY_LABELS: Record<ActivityType, string> = {
@@ -33,12 +35,17 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
 const CreateReelScreen: React.FC = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
-  const { showToast } = useToast();
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
   const [videoUri, setVideoUri] = useState<string | null>(null);
+  const [originalVideoUri, setOriginalVideoUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
   const [activityType, setActivityType] = useState<ActivityType>('run');
-  const [posting, setPosting] = useState(false);
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  const [checkingDuration, setCheckingDuration] = useState(false);
+  const [showTrimModal, setShowTrimModal] = useState(false);
+  const [trimStartTime, setTrimStartTime] = useState(0);
+  const [trimEndTime, setTrimEndTime] = useState(60);
+  const { runReelUpload } = useUpload();
 
   // Hide bottom tabs when CreateReelScreen is open. Use a short delay so that when
   // navigating from CreatePost → Reel, we re-hide after CreatePost's cleanup runs.
@@ -170,34 +177,70 @@ const CreateReelScreen: React.FC = () => {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['videos'],
-      allowsEditing: true,
+      allowsEditing: false, // We'll handle trimming ourselves
       aspect: [9, 16],
       quality: 0.8,
-      videoMaxDuration: 90,
+      // Remove videoMaxDuration to allow longer videos - we'll trim them
     });
     if (!result.canceled && result.assets[0]?.uri) {
-      setVideoUri(result.assets[0].uri);
+      const uri = result.assets[0].uri;
+      const duration = result.assets[0].duration;
+      
+      // Check duration (in milliseconds, convert to seconds)
+      const durationSeconds = duration ? duration / 1000 : null;
+      
+      // Store original video URI
+      setOriginalVideoUri(uri);
+      
+      // If duration not provided by ImagePicker, we'll check in preview
+      if (!durationSeconds) {
+        setVideoUri(uri);
+        setVideoDuration(null);
+        setCheckingDuration(true);
+      } else {
+        setVideoUri(uri);
+        setVideoDuration(durationSeconds);
+        
+        // If video is longer than 60 seconds, show trim modal
+        if (durationSeconds > 60) {
+          setTrimStartTime(0);
+          setTrimEndTime(60);
+          setShowTrimModal(true);
+        }
+      }
     }
   };
 
-  const handlePost = async () => {
+  const handlePost = () => {
     if (!videoUri || !user) return;
-    setPosting(true);
-    try {
-      const videoUrl = await uploadService.uploadVideo(videoUri);
-
-      await reelService.createReel({
-        videoUri: videoUrl,
-        caption: caption.trim() || 'No caption',
-        activityType,
-      });
-      showToast('Your reel is live!', 'success');
-      navigation.goBack();
-    } catch (e: any) {
-      showToast(e?.message || 'Could not post reel. Try again.', 'error');
-    } finally {
-      setPosting(false);
+    
+    // Use trimmed video if trimming was applied
+    const finalVideoUri = originalVideoUri && videoDuration && videoDuration > 60 
+      ? originalVideoUri // Will be trimmed on backend using trimStartTime and trimEndTime
+      : videoUri;
+    
+    // Final duration check before posting
+    const finalDuration = videoDuration && videoDuration > 60 
+      ? (trimEndTime - trimStartTime)
+      : videoDuration;
+    
+    if (finalDuration && finalDuration > 60) {
+      Alert.alert(
+        'Video too long',
+        'Reels must be 1 minute or shorter. Please trim your video.',
+        [{ text: 'OK' }]
+      );
+      return;
     }
+    
+    runReelUpload({
+      videoUri: finalVideoUri,
+      caption: caption.trim() || 'No caption',
+      activityType,
+      trimStartTime: originalVideoUri && videoDuration && videoDuration > 60 ? trimStartTime : undefined,
+      trimEndTime: originalVideoUri && videoDuration && videoDuration > 60 ? trimEndTime : undefined,
+    });
+    navigation.goBack();
   };
 
   const previewHeight = Math.min(SCREEN_HEIGHT * 0.5, SCREEN_WIDTH * (16 / 9));
@@ -211,16 +254,12 @@ const CreateReelScreen: React.FC = () => {
         <Text style={styles.headerTitle}>New reel</Text>
         <TouchableOpacity
           onPress={handlePost}
-          disabled={!videoUri || posting}
+          disabled={!videoUri}
           style={styles.headerRightBtn}
         >
-          {posting ? (
-            <ActivityIndicator size="small" color="#0095f6" />
-          ) : (
-            <Text style={[styles.postText, (!videoUri || posting) && styles.postTextDisabled]}>
-              Post
-            </Text>
-          )}
+          <Text style={[styles.postText, !videoUri && styles.postTextDisabled]}>
+            Post
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -232,7 +271,34 @@ const CreateReelScreen: React.FC = () => {
         <View style={styles.previewSection}>
           {videoUri ? (
             <View style={[styles.previewWrap, { height: previewHeight }]}>
-              <ReelPreview uri={videoUri} />
+              <ReelPreview 
+                uri={videoUri} 
+                onDurationCheck={(duration) => {
+                  setVideoDuration(duration);
+                  if (duration > 60 && !showTrimModal) {
+                    // Auto-trim: set to first 60 seconds, but show trim modal for user to adjust
+                    setTrimStartTime(0);
+                    setTrimEndTime(Math.min(60, duration));
+                    setShowTrimModal(true);
+                  }
+                }}
+              />
+              {videoDuration !== null && videoDuration > 60 && (
+                <TouchableOpacity 
+                  style={styles.trimBtn}
+                  onPress={() => setShowTrimModal(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="cut-outline" size={18} color="#fff" />
+                  <Text style={styles.trimBtnText}>Trim video</Text>
+                </TouchableOpacity>
+              )}
+              {checkingDuration && (
+                <View style={styles.checkingOverlay}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.checkingText}>Checking duration...</Text>
+                </View>
+              )}
               <TouchableOpacity style={styles.changeVideoBtn} onPress={pickVideo}>
                 <Ionicons name="swap-horizontal" size={20} color="#fff" />
                 <Text style={styles.changeVideoText}>Change video</Text>
@@ -242,7 +308,7 @@ const CreateReelScreen: React.FC = () => {
             <TouchableOpacity style={[styles.pickWrap, { height: previewHeight }]} onPress={pickVideo} activeOpacity={0.8}>
               <Ionicons name="videocam-outline" size={64} color="#999" />
               <Text style={styles.pickTitle}>Choose video</Text>
-              <Text style={styles.pickSubtext}>Up to 90 seconds • 9:16 works best</Text>
+              <Text style={styles.pickSubtext}>Up to 60 seconds • 9:16 works best</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -286,15 +352,211 @@ const CreateReelScreen: React.FC = () => {
           </View>
         </View>
       </ScrollView>
+
+      {/* Trim Modal */}
+      <Modal
+        visible={showTrimModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowTrimModal(false)}
+      >
+        <View style={styles.trimModalOverlay}>
+          <View style={styles.trimModalContent}>
+            <View style={styles.trimModalHeader}>
+              <Text style={styles.trimModalTitle}>Trim Video</Text>
+              <TouchableOpacity onPress={() => setShowTrimModal(false)}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            {originalVideoUri && videoDuration && (
+              <VideoTrimEditor
+                videoUri={originalVideoUri}
+                duration={videoDuration}
+                startTime={trimStartTime}
+                endTime={trimEndTime}
+                onStartTimeChange={setTrimStartTime}
+                onEndTimeChange={setTrimEndTime}
+                onConfirm={(start, end) => {
+                  // For now, we'll use the original video and handle trimming on backend
+                  // Or we can use ImagePicker's editing feature
+                  setTrimStartTime(start);
+                  setTrimEndTime(end);
+                  setShowTrimModal(false);
+                  // Note: Actual trimming would need to be done on backend or with FFmpeg
+                  // For now, we'll store trim times and handle on upload
+                }}
+                onCancel={() => {
+                  setShowTrimModal(false);
+                  // Reset to auto-trim (first 60 seconds)
+                  if (videoDuration) {
+                    setTrimStartTime(0);
+                    setTrimEndTime(Math.min(60, videoDuration));
+                  }
+                }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
 
+/** Video Trim Editor Component */
+const VideoTrimEditor: React.FC<{
+  videoUri: string;
+  duration: number;
+  startTime: number;
+  endTime: number;
+  onStartTimeChange: (time: number) => void;
+  onEndTimeChange: (time: number) => void;
+  onConfirm: (start: number, end: number) => void;
+  onCancel: () => void;
+}> = ({ videoUri, duration, startTime, endTime, onStartTimeChange, onEndTimeChange, onConfirm, onCancel }) => {
+  const [previewTime, setPreviewTime] = useState(startTime);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleStartTimeChange = (value: number) => {
+    const newStart = Math.max(0, Math.min(value, duration - 60));
+    onStartTimeChange(newStart);
+    setPreviewTime(newStart);
+    // Adjust end time if needed to maintain 60-second limit
+    if (endTime < newStart + 60) {
+      onEndTimeChange(Math.min(duration, newStart + 60));
+    }
+  };
+
+  const handleEndTimeChange = (value: number) => {
+    const newEnd = Math.min(duration, Math.max(startTime + 1, value));
+    // Ensure max 60 seconds
+    if (newEnd - startTime > 60) {
+      onEndTimeChange(startTime + 60);
+    } else {
+      onEndTimeChange(newEnd);
+    }
+    setPreviewTime(startTime); // Preview from start of selected segment
+  };
+
+  return (
+    <View style={styles.trimEditor}>
+      <View style={styles.trimPreview}>
+        <ReelPreview uri={videoUri} previewTime={previewTime} />
+      </View>
+
+      <View style={styles.trimControls}>
+        <View style={styles.trimTimeDisplay}>
+          <View style={styles.trimTimeItem}>
+            <Text style={styles.trimTimeLabel}>Start</Text>
+            <Text style={styles.trimTimeValue}>{formatTime(startTime)}</Text>
+          </View>
+          <View style={styles.trimTimeItem}>
+            <Text style={styles.trimTimeLabel}>Duration</Text>
+            <Text style={styles.trimTimeValue}>{formatTime(endTime - startTime)}</Text>
+          </View>
+          <View style={styles.trimTimeItem}>
+            <Text style={styles.trimTimeLabel}>End</Text>
+            <Text style={styles.trimTimeValue}>{formatTime(endTime)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.trimSliderContainer}>
+          <Text style={styles.trimSliderLabel}>Start time</Text>
+          <Slider
+            style={styles.trimSlider}
+            minimumValue={0}
+            maximumValue={Math.max(0, duration - 60)}
+            value={startTime}
+            onValueChange={handleStartTimeChange}
+            minimumTrackTintColor="#0095f6"
+            maximumTrackTintColor="#ddd"
+            thumbTintColor="#0095f6"
+          />
+        </View>
+
+        <View style={styles.trimSliderContainer}>
+          <Text style={styles.trimSliderLabel}>End time</Text>
+          <Slider
+            style={styles.trimSlider}
+            minimumValue={startTime + 1}
+            maximumValue={Math.min(duration, startTime + 60)}
+            value={endTime}
+            onValueChange={handleEndTimeChange}
+            minimumTrackTintColor="#0095f6"
+            maximumTrackTintColor="#ddd"
+            thumbTintColor="#0095f6"
+          />
+        </View>
+
+        <View style={styles.trimActions}>
+          <TouchableOpacity style={styles.trimCancelBtn} onPress={onCancel}>
+            <Text style={styles.trimCancelText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.trimConfirmBtn}
+            onPress={() => onConfirm(startTime, endTime)}
+          >
+            <Text style={styles.trimConfirmText}>Use this segment</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+};
+
 /** Simple preview player for the selected video (no loop, just preview). */
-function ReelPreview({ uri }: { uri: string }) {
+function ReelPreview({ uri, onDurationCheck, previewTime }: { uri: string; onDurationCheck?: (duration: number) => void; previewTime?: number }) {
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
   });
+  const hasCheckedRef = useRef(false);
+  
+  // Seek to preview time if provided
+  useEffect(() => {
+    if (previewTime !== undefined && player.duration > 0) {
+      player.currentTime = previewTime;
+    }
+  }, [previewTime, player]);
+  
+  useEffect(() => {
+    if (!onDurationCheck || hasCheckedRef.current) return;
+    
+    const checkDuration = () => {
+      if (player.duration > 0 && !hasCheckedRef.current) {
+        onDurationCheck(player.duration);
+        hasCheckedRef.current = true;
+      }
+    };
+    
+    // Check duration when player is ready
+    const sub = player.addListener('statusChange', (status) => {
+      if (status.status === 'readyToPlay') {
+        checkDuration();
+      }
+    });
+    
+    // Also check periodically in case duration loads later (max 5 seconds)
+    let attempts = 0;
+    const maxAttempts = 10;
+    const interval = setInterval(() => {
+      attempts++;
+      checkDuration();
+      if (hasCheckedRef.current || attempts >= maxAttempts) {
+        clearInterval(interval);
+      }
+    }, 500);
+    
+    return () => {
+      sub.remove();
+      clearInterval(interval);
+    };
+  }, [player, onDurationCheck]);
+  
   return (
     <VideoView
       player={player}
@@ -397,6 +659,156 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
     marginTop: 4,
+  },
+  durationWarning: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 59, 48, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  durationWarningText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  checkingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  checkingText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  trimBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0, 149, 246, 0.9)',
+    borderRadius: 8,
+  },
+  trimBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  trimModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'flex-end',
+  },
+  trimModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+  },
+  trimModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+  },
+  trimModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+  },
+  trimEditor: {
+    flex: 1,
+  },
+  trimPreview: {
+    width: '100%',
+    height: 300,
+    backgroundColor: '#000',
+    marginTop: 16,
+  },
+  trimControls: {
+    padding: 16,
+  },
+  trimTimeDisplay: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 24,
+  },
+  trimTimeItem: {
+    alignItems: 'center',
+  },
+  trimTimeLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  trimTimeValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+  },
+  trimSliderContainer: {
+    marginBottom: 20,
+  },
+  trimSliderLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  trimSlider: {
+    width: '100%',
+    height: 40,
+  },
+  trimActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  trimCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+  },
+  trimCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+  },
+  trimConfirmBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 8,
+    backgroundColor: '#0095f6',
+    alignItems: 'center',
+  },
+  trimConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
   captionSection: {
     paddingHorizontal: 16,

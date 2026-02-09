@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const busboy = require('busboy');
 const sharp = require('sharp');
 const cloudinary = require('../utils/cloudinary');
 const authMiddleware = require('../middleware/auth');
@@ -55,32 +56,84 @@ router.post('/image', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/upload/video – multipart form field: "video"
-router.post('/video', authMiddleware, upload.single('video'), async (req, res) => {
-  try {
-    if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ error: 'Video file is required' });
-    }
-    if (!process.env.CLOUDINARY_CLOUD_NAME) {
-      return res.status(503).json({ error: 'Upload not configured. Set CLOUDINARY_* in .env' });
-    }
-
-    const uploadPromise = new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: 'runbarbie/reels',
-          resource_type: 'video',
-        },
-        (err, result) => (err ? reject(err) : resolve(result))
-      );
-      stream.end(req.file.buffer);
-    });
-
-    const result = await uploadPromise;
-    res.json({ url: result.secure_url });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+// POST /api/upload/video – multipart form field: "video" (streamed to Cloudinary, no full buffering)
+// Optional form fields: "trimStartTime" and "trimEndTime" (in seconds) for video trimming
+router.post('/video', authMiddleware, (req, res) => {
+  if (!process.env.CLOUDINARY_CLOUD_NAME) {
+    return res.status(503).json({ error: 'Upload not configured. Set CLOUDINARY_* in .env' });
   }
+
+  const bb = busboy({ headers: req.headers });
+  let resolved = false;
+  let videoReceived = false;
+  let trimStartTime = null;
+  let trimEndTime = null;
+
+  function finish(err, url) {
+    if (resolved) return;
+    resolved = true;
+    if (err) return res.status(500).json({ error: err.message || 'Video upload failed' });
+    res.json({ url });
+  }
+
+  // Parse trim parameters from form fields
+  bb.on('field', (fieldname, value) => {
+    if (fieldname === 'trimStartTime') {
+      trimStartTime = parseFloat(value);
+    } else if (fieldname === 'trimEndTime') {
+      trimEndTime = parseFloat(value);
+    }
+  });
+
+  bb.on('file', (fieldname, file, info) => {
+    if (fieldname !== 'video') {
+      file.resume();
+      return;
+    }
+    videoReceived = true;
+    
+    // Build Cloudinary upload options
+    const uploadOptions = {
+      folder: 'runbarbie/reels',
+      resource_type: 'video',
+    };
+
+    // If trim parameters are provided, add video transformation using eager
+    // This creates a trimmed version during upload
+    if (trimStartTime !== null && trimEndTime !== null && trimEndTime > trimStartTime) {
+      const duration = trimEndTime - trimStartTime;
+      // Cloudinary video transformation: so_ (start offset) and du_ (duration)
+      uploadOptions.eager = [
+        {
+          start_offset: trimStartTime,
+          duration: duration,
+        }
+      ];
+      // Also set eager_async to false to wait for transformation
+      uploadOptions.eager_async = false;
+    }
+
+    const uploadStream = cloudinary.uploader.upload_stream(
+      uploadOptions,
+      (err, result) => {
+        if (err) return finish(err);
+        // If trimming was applied, use the eager transformation URL
+        // Otherwise use the original URL
+        const finalUrl = result.eager && result.eager.length > 0 
+          ? result.eager[0].secure_url 
+          : result.secure_url;
+        finish(null, finalUrl);
+      }
+    );
+    file.pipe(uploadStream);
+  });
+
+  bb.on('error', (err) => finish(err));
+  bb.on('close', () => {
+    if (!resolved && !videoReceived) finish(new Error('Video file is required'));
+  });
+
+  req.pipe(bb);
 });
 
 // POST /api/upload/story – body: { image: "data:image/..." } (base64)

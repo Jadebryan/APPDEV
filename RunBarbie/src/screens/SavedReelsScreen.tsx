@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
@@ -10,6 +10,7 @@ import { Reel } from '../types';
 import { ReelsStackParamList } from '../navigation/types';
 import { getTimeAgo } from '../utils/timeAgo';
 import { useToast } from '../context/ToastContext';
+import ConfirmModal from '../components/ConfirmModal';
 
 type Nav = NativeStackNavigationProp<ReelsStackParamList, 'SavedReels'>;
 type SavedReelsRoute = RouteProp<ReelsStackParamList, 'SavedReels'>;
@@ -30,6 +31,7 @@ const SavedReelsScreen: React.FC = () => {
   };
   const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reelToRemove, setReelToRemove] = useState<Reel | null>(null);
 
   const loadReels = useCallback(async () => {
     try {
@@ -53,24 +55,20 @@ const SavedReelsScreen: React.FC = () => {
     navigation.navigate('ReelsHome', { initialReelId: reel._id });
   };
 
-  const handleRemove = (reel: Reel) => {
-    Alert.alert('Remove from saved', `Remove this reel from your saved list?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await reelService.unbookmarkReel(reel._id);
-            setReels((prev) => prev.filter((r) => r._id !== reel._id));
-            showToast('Removed from saved', 'success');
-          } catch {
-            showToast('Failed to remove', 'info');
-          }
-        },
-      },
-    ]);
-  };
+  const handleRemove = (reel: Reel) => setReelToRemove(reel);
+
+  const handleConfirmRemove = useCallback(async () => {
+    const reel = reelToRemove;
+    setReelToRemove(null);
+    if (!reel) return;
+    try {
+      await reelService.unbookmarkReel(reel._id);
+      setReels((prev) => prev.filter((r) => r._id !== reel._id));
+      showToast('Removed from saved', 'success');
+    } catch {
+      showToast('Failed to remove', 'info');
+    }
+  }, [reelToRemove, showToast]);
 
   const renderItem = ({ item }: { item: Reel }) => {
     const user = item.user ?? (item as { userId?: { username?: string } }).userId;
@@ -121,6 +119,17 @@ const SavedReelsScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <ConfirmModal
+        visible={!!reelToRemove}
+        onClose={() => setReelToRemove(null)}
+        title="Remove from saved"
+        message="Remove this reel from your saved list?"
+        confirmLabel="Remove"
+        onConfirm={handleConfirmRemove}
+        destructive
+        icon="bookmark-outline"
+      />
     </SafeAreaView>
   );
 };

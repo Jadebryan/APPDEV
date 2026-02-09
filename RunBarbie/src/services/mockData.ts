@@ -442,6 +442,45 @@ export const mockDataService = {
     return newPost;
   },
 
+  updatePost: async (
+    postId: string,
+    updates: {
+      caption?: string;
+      activityType?: ActivityType;
+      distance?: number;
+      duration?: number;
+      location?: { latitude: number; longitude: number; name?: string };
+    },
+  ): Promise<Post> => {
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    const post = mockPostsData.find(p => p._id === postId);
+    if (!post) {
+      throw new Error('Post not found');
+    }
+
+    if (typeof updates.caption === 'string') {
+      post.caption = updates.caption;
+    }
+    if (updates.activityType) {
+      post.activityType = updates.activityType;
+    }
+    if (typeof updates.distance === 'number') {
+      post.distance = updates.distance;
+    }
+    if (typeof updates.duration === 'number') {
+      post.duration = updates.duration;
+    }
+    if (updates.location) {
+      post.location = updates.location;
+    }
+
+    return {
+      ...post,
+      user: mockUsers.find(u => u._id === post.userId) || mockUsers[0],
+    };
+  },
+
   likePost: async (postId: string): Promise<Post> => {
     await new Promise(resolve => setTimeout(resolve, 200));
     

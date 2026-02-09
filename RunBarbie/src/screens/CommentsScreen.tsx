@@ -23,7 +23,7 @@ type CommentsRoute = RouteProp<FeedStackParamList, 'Comments'>;
 const CommentsScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute<CommentsRoute>();
-  const { postId, username, caption, image } = route.params;
+  const { postId, username, caption, image, returnToSearch } = route.params;
   const [comments, setComments] = useState<PostComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
@@ -63,7 +63,22 @@ const CommentsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIcon}>
+        <TouchableOpacity 
+          onPress={() => {
+            if (returnToSearch) {
+              // Navigate back to Search tab instead of going back in FeedStack
+              const root = navigation.getParent()?.getParent();
+              if (root && 'navigate' in root) {
+                (root as any).navigate('Search');
+              } else {
+                navigation.goBack();
+              }
+            } else {
+              navigation.goBack();
+            }
+          }} 
+          style={styles.headerIcon}
+        >
           <Ionicons name="chevron-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Comments</Text>

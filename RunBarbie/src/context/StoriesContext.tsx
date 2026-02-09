@@ -12,10 +12,16 @@ export interface Story {
   caption?: string;
   activityType?: ActivityType;
   createdAt: string;
+  viewCount?: number;
+  likeCount?: number;
+  likedByMe?: boolean;
 }
 
 interface StoriesContextType {
   stories: Story[];
+  /** All of the current user's stories (newest first), for IG-style multi-slide */
+  myStories: Story[];
+  /** First/latest story for "Your story" ring preview; backward compat */
   myStory?: Story;
   loading: boolean;
   refreshStories: () => Promise<void>;
@@ -28,7 +34,19 @@ interface StoriesContextType {
 
 const StoriesContext = createContext<StoriesContextType | undefined>(undefined);
 
-function mapApiToStory(api: { id: string; userId: string; username: string; avatar?: string; mediaUri: string; caption?: string; activityType?: string; createdAt: string }): Story {
+function mapApiToStory(api: {
+  id: string;
+  userId: string;
+  username: string;
+  avatar?: string;
+  mediaUri: string;
+  caption?: string;
+  activityType?: string;
+  createdAt: string;
+  viewCount?: number;
+  likeCount?: number;
+  likedByMe?: boolean;
+}): Story {
   return {
     id: api.id,
     userId: api.userId,
@@ -38,6 +56,9 @@ function mapApiToStory(api: { id: string; userId: string; username: string; avat
     caption: api.caption,
     activityType: api.activityType as ActivityType | undefined,
     createdAt: api.createdAt,
+    viewCount: api.viewCount,
+    likeCount: api.likeCount,
+    likedByMe: api.likedByMe,
   };
 }
 
@@ -90,13 +111,32 @@ export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
-  const myStory = useMemo(
-    () => (user ? stories.find((s) => s.userId === user._id) : undefined),
+  const myStories = useMemo(
+    () =>
+      user
+        ? stories
+            .filter((s) => s.userId === user._id)
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        : [],
+    [stories, user],
+  );
+
+  const myStory = useMemo(() => (myStories.length > 0 ? myStories[0] : undefined), [myStories]);
+
+  // Only show stories from users the current user follows, plus their own stories.
+  const visibleStories = useMemo(
+    () =>
+      stories.filter((s) => {
+        if (!user) return true;
+        if (s.userId === user._id) return true;
+        return (user.following ?? []).includes(s.userId);
+      }),
     [stories, user],
   );
 
   const value: StoriesContextType = {
-    stories,
+    stories: visibleStories,
+    myStories,
     myStory,
     loading,
     refreshStories,

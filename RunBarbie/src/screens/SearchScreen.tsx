@@ -19,8 +19,9 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { User } from '../types';
+import { User, Post, Reel } from '../types';
 import { searchService, SearchTag, userService, UpcomingTrailPost } from '../services/api';
+import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 
 type TabType = 'all' | 'accounts' | 'tags';
 
@@ -36,7 +37,7 @@ const SearchScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<User[]>([]);
-  const [trendingTags, setTrendingTags] = useState<SearchTag[]>([]);
+  const [trendingContent, setTrendingContent] = useState<Array<Post | (Reel & { type: 'post' | 'reel'; likeCount: number })>>([]);
   const [upcomingTrailPosts, setUpcomingTrailPosts] = useState<UpcomingTrailPost[]>([]);
   const [userResults, setUserResults] = useState<User[]>([]);
   const [tagResults, setTagResults] = useState<SearchTag[]>([]);
@@ -47,13 +48,13 @@ const SearchScreen: React.FC = () => {
   const loadSuggestions = useCallback(async () => {
     setLoadingSuggestions(true);
     try {
-      const [users, tags, upcoming] = await Promise.all([
+      const [users, trending, upcoming] = await Promise.all([
         searchService.getSuggestedUsers(),
-        searchService.getTrendingTags(),
+        searchService.getTrending(),
         searchService.getUpcomingTrailPosts(facebookAccessToken ?? undefined),
       ]);
       setSuggestedUsers(users);
-      setTrendingTags(tags);
+      setTrendingContent(trending);
       setUpcomingTrailPosts(upcoming);
       setRecentSearches(await searchService.getRecentSearches());
     } catch (e) {
@@ -97,6 +98,9 @@ const SearchScreen: React.FC = () => {
         if (!cancelled) {
           setUserResults([]);
           setTagResults([]);
+          // Surface backend search errors instead of silently failing
+          console.error('Search error', e);
+          showToast('Search is not available right now. Please check the API search endpoints.', 'error');
         }
       } finally {
         if (!cancelled) setLoadingSearch(false);
@@ -202,15 +206,10 @@ const SearchScreen: React.FC = () => {
         onPress={() => handleAccountPress(item)}
       >
         <View style={styles.avatarWrap}>
-          {item.avatar ? (
-            <Image source={{ uri: item.avatar }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarLetter}>
-                {(item.username || '?').charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
+          <Image
+            source={{ uri: item.avatar || DEFAULT_AVATAR_URI }}
+            style={styles.avatar}
+          />
         </View>
         <View style={styles.accountInfo}>
           <Text style={styles.username} numberOfLines={1}>{item.username}</Text>
@@ -245,6 +244,138 @@ const SearchScreen: React.FC = () => {
       </View>
     </TouchableOpacity>
   );
+
+  const handleTrendingPostPress = (post: Post) => {
+    // Navigate to FeedStack tab with Comments screen
+    // Pass a param to indicate we came from Search so back button can return to Search
+    const root = navigation.getParent()?.getParent();
+    if (root && 'navigate' in root) {
+      (root as any).navigate('FeedStack', {
+        screen: 'Comments',
+        params: {
+          postId: post._id,
+          username: post.user.username,
+          caption: post.caption,
+          image: post.image,
+          returnToSearch: true, // Flag to indicate we should return to Search on back
+        },
+      });
+    } else {
+      navigation.navigate('FeedStack' as any, {
+        screen: 'Comments',
+        params: {
+          postId: post._id,
+          username: post.user.username,
+          caption: post.caption,
+          image: post.image,
+          returnToSearch: true,
+        },
+      });
+    }
+  };
+
+  const handleTrendingReelPress = (reel: Reel & { type: 'post' | 'reel'; likeCount: number }) => {
+    // Navigate to Reels tab with ReelsHome screen
+    // Pass a param to indicate we came from Search so back button can return to Search
+    const root = navigation.getParent()?.getParent();
+    if (root && 'navigate' in root) {
+      (root as any).navigate('Reels', {
+        screen: 'ReelsHome',
+        params: { 
+          initialReelId: reel._id,
+          returnToSearch: true, // Flag to indicate we should return to Search on back
+        },
+      });
+    } else {
+      navigation.navigate('Reels' as any, {
+        screen: 'ReelsHome',
+        params: { 
+          initialReelId: reel._id,
+          returnToSearch: true,
+        },
+      });
+    }
+  };
+
+  const renderTrendingItem = (item: Post | (Reel & { type: 'post' | 'reel'; likeCount: number })) => {
+    const isPost = 'image' in item || 'type' in item && item.type === 'post';
+    const isReel = 'videoUri' in item || ('type' in item && item.type === 'reel');
+    
+    if (isPost) {
+      const post = item as Post;
+      return (
+        <TouchableOpacity
+          key={`post-${post._id}`}
+          style={styles.trendingCard}
+          activeOpacity={0.8}
+          onPress={() => handleTrendingPostPress(post)}
+        >
+          <Image
+            source={{ uri: post.image || post.images?.[0] || '' }}
+            style={styles.trendingCardImage}
+          />
+          <View style={styles.trendingCardOverlay} />
+          <View style={styles.trendingCardContent}>
+            <View style={styles.trendingCardHeader}>
+              <Image
+                source={{ uri: post.user.avatar || DEFAULT_AVATAR_URI }}
+                style={styles.trendingCardAvatar}
+              />
+              <Text style={styles.trendingCardUsername} numberOfLines={1}>
+                {post.user.username}
+              </Text>
+            </View>
+            <View style={styles.trendingCardStats}>
+              <Ionicons name="heart" size={14} color="#fff" />
+              <Text style={styles.trendingCardLikes}>
+                {post.likes.length}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+    
+    if (isReel) {
+      const reel = item as Reel & { type: 'post' | 'reel'; likeCount: number };
+      return (
+        <TouchableOpacity
+          key={`reel-${reel._id}`}
+          style={styles.trendingCard}
+          activeOpacity={0.8}
+          onPress={() => handleTrendingReelPress(reel)}
+        >
+          <Image
+            source={{ uri: reel.videoUri }}
+            style={styles.trendingCardImage}
+          />
+          <View style={styles.trendingCardOverlay} />
+          <View style={styles.trendingCardContent}>
+            <View style={styles.trendingCardHeader}>
+              <Image
+                source={{ uri: reel.user.avatar || DEFAULT_AVATAR_URI }}
+                style={styles.trendingCardAvatar}
+              />
+              <Text style={styles.trendingCardUsername} numberOfLines={1}>
+                {reel.user.username}
+              </Text>
+            </View>
+            <View style={styles.trendingCardStats}>
+              <Ionicons name="heart" size={14} color="#fff" />
+              <Text style={styles.trendingCardLikes}>
+                {reel.likes.length}
+              </Text>
+            </View>
+            <View style={styles.trendingCardReelBadge}>
+              <Ionicons name="play-circle" size={12} color="#fff" />
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+    
+    return null;
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -361,17 +492,13 @@ const SearchScreen: React.FC = () => {
               </View>
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Trending</Text>
-                <View style={styles.trendingRow}>
-                  {trendingTags.map((t) => (
-                    <TouchableOpacity
-                      key={t.tag}
-                      style={styles.trendingChip}
-                      onPress={() => handleTagTap(t.tag)}
-                    >
-                      <Text style={styles.trendingChipText}>#{t.tag}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.trendingScrollContent}
+                >
+                  {trendingContent.map((item) => renderTrendingItem(item))}
+                </ScrollView>
               </View>
             </>
           }
@@ -648,21 +775,75 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
-  trendingRow: {
+  trendingScrollContent: {
+    paddingRight: 16,
+    gap: 12,
+  },
+  trendingCard: {
+    width: 140,
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    position: 'relative',
+  },
+  trendingCardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  trendingCardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  trendingCardContent: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    padding: 10,
+    justifyContent: 'space-between',
+  },
+  trendingCardHeader: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    alignItems: 'center',
+    gap: 6,
   },
-  trendingChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#efefef',
-    borderRadius: 8,
+  trendingCardAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#fff',
   },
-  trendingChipText: {
-    fontSize: 14,
-    color: '#0095f6',
-    fontWeight: '500',
+  trendingCardUsername: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+    flex: 1,
+  },
+  trendingCardStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  trendingCardLikes: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  trendingCardReelBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    padding: 4,
   },
   emptyResults: {
     flex: 1,

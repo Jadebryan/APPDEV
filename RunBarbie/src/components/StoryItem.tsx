@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 
 interface StoryItemProps {
   username: string;
@@ -33,17 +34,11 @@ const StoryItem: React.FC<StoryItemProps> = ({
   const totalSize = avatarSize + ringWidth * 2;
 
   // Instagram-style: show story preview (first story image) when active, else avatar
-  const imageUri = storyPreviewUri || avatar;
+  const imageUri = storyPreviewUri || avatar || DEFAULT_AVATAR_URI;
 
   const AvatarContent = () => (
     <View style={[styles.avatarWrapper, { width: avatarSize, height: avatarSize }]}>
-      {imageUri ? (
-        <Image source={{ uri: imageUri }} style={styles.avatar} />
-      ) : (
-        <View style={[styles.avatar, styles.avatarPlaceholder]}>
-          <Ionicons name="person" size={32} color="#999" />
-        </View>
-      )}
+      <Image source={{ uri: imageUri }} style={styles.avatar} />
     </View>
   );
 

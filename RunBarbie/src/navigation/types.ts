@@ -19,6 +19,7 @@ export type FeedStackParamList = {
     username: string;
     caption: string;
     image: string;
+    returnToSearch?: boolean;
   };
   UserProfile: {
     userId: string;
@@ -42,7 +43,7 @@ export type MainTabParamList = {
 };
 
 export type ReelsStackParamList = {
-  ReelsHome: { initialReelId?: string; reportedReelId?: string };
+  ReelsHome: { initialReelId?: string; reportedReelId?: string; returnToSearch?: boolean };
   CreateReel: undefined;
   SavedReels: { fromProfile?: boolean };
   ReportReel: { reelId: string };

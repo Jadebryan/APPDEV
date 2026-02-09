@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
+  ImageBackground,
   NativeScrollEvent,
   NativeSyntheticEvent,
 } from 'react-native';
@@ -25,6 +26,8 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
 import { formatDurationMinutes } from '../utils/formatDuration';
+import UploadProgressBar from '../components/UploadProgressBar';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 
 type FeedScreenNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
 type FeedHomeRoute = RouteProp<FeedStackParamList, 'FeedHome'>;
@@ -55,6 +58,7 @@ const FeedScreen: React.FC = () => {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [hiddenPostIds, setHiddenPostIds] = useState<Set<string>>(new Set());
   const [mutedUserIds, setMutedUserIds] = useState<Set<string>>(new Set());
+  const [reelThumbnails, setReelThumbnails] = useState<Record<string, string>>({});
   const { user, updateUser } = useAuth();
   const { showToast } = useToast();
   const navigation = useNavigation<FeedScreenNav>();
@@ -152,8 +156,12 @@ const FeedScreen: React.FC = () => {
     };
   }, [posts, user?._id]);
 
+  /** Posts/reels only from users the current user follows (or own). Mutual follow = both see each other's content. */
   const visiblePosts = useMemo(() => {
-    let data = posts.filter((p) => !hiddenPostIds.has(p._id) && !mutedUserIds.has(p.userId));
+    const followingOrOwn = (userId: string) => !user || userId === user._id || (user.following ?? []).includes(userId);
+    let data = posts.filter(
+      (p) => followingOrOwn(p.userId) && !hiddenPostIds.has(p._id) && !mutedUserIds.has(p.userId)
+    );
     if (tagFromParams) {
       const tagLower = tagFromParams.toLowerCase().replace(/^#/, '');
       data = data.filter(
@@ -174,7 +182,56 @@ const FeedScreen: React.FC = () => {
       sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     }
     return sorted;
-  }, [posts, activityFilter, sortBy, hiddenPostIds, mutedUserIds, tagFromParams]);
+  }, [posts, user, activityFilter, sortBy, hiddenPostIds, mutedUserIds, tagFromParams]);
+
+  const visibleReels = useMemo(
+    () =>
+      reels.filter(
+        (r) => !user || r.userId === user._id || (user.following ?? []).includes(r.userId)
+      ),
+    [reels, user]
+  );
+
+  // Generate lightweight thumbnails for reels for the horizontal preview row - optimized
+  useEffect(() => {
+    let cancelled = false;
+    const loadThumbs = async () => {
+      const toGenerate = visibleReels.filter((r) => !reelThumbnails[r._id]);
+      if (toGenerate.length === 0) return;
+      
+      // Generate thumbnails in parallel for faster loading
+      const thumbnailPromises = toGenerate.map(async (reel) => {
+        try {
+          const { uri } = await VideoThumbnails.getThumbnailAsync(reel.videoUri, {
+            time: 500, // Earlier timestamp for faster access
+            quality: 0.7, // Lower quality for faster generation
+          });
+          return { reelId: reel._id, uri };
+        } catch {
+          return null;
+        }
+      });
+      
+      const results = await Promise.all(thumbnailPromises);
+      if (!cancelled) {
+        const updates: Record<string, string> = {};
+        results.forEach((result) => {
+          if (result) {
+            updates[result.reelId] = result.uri;
+          }
+        });
+        if (Object.keys(updates).length > 0) {
+          setReelThumbnails((prev) => ({ ...prev, ...updates }));
+        }
+      }
+    };
+    if (visibleReels.length > 0) {
+      loadThumbs();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleReels, reelThumbnails]);
 
   const handleHidePost = useCallback((postId: string) => {
     setHiddenPostIds((prev) => new Set(prev).add(postId));
@@ -183,6 +240,32 @@ const FeedScreen: React.FC = () => {
   const handleMuteUser = useCallback((userId: string) => {
     setMutedUserIds((prev) => new Set(prev).add(userId));
   }, []);
+
+  const handleDeletePost = useCallback(async (postId: string) => {
+    try {
+      await postService.deletePost(postId);
+      setPosts((prev) => prev.filter((p) => p._id !== postId));
+      showToast('Post deleted', 'success');
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to delete post', 'error');
+    }
+  }, [showToast]);
+
+  const renderPostItem = useCallback(
+    ({ item }: { item: Post }) => (
+      <PostCard
+        post={item}
+        onLike={handleLike}
+        currentUserId={user?._id}
+        saved={savedPostIds.has(item._id)}
+        onBookmark={user ? handleBookmark : undefined}
+        onHidePost={handleHidePost}
+        onMuteUser={handleMuteUser}
+        onDelete={user ? handleDeletePost : undefined}
+      />
+    ),
+    [handleLike, user?._id, savedPostIds, handleBookmark, handleHidePost, handleMuteUser, handleDeletePost],
+  );
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = e.nativeEvent.contentOffset.y;
@@ -217,6 +300,7 @@ const FeedScreen: React.FC = () => {
   const SmartHeader = () => (
     <>
       <StoriesSection />
+      <UploadProgressBar />
 
       {/* Smart summary card (personalized) */}
       <View style={styles.smartCard}>
@@ -281,7 +365,7 @@ const FeedScreen: React.FC = () => {
       </View>
 
       {/* Reels row – Instagram-style horizontal strip */}
-      {reels.length > 0 && (
+      {visibleReels.length > 0 && (
         <View style={styles.reelsSection}>
           <View style={styles.reelsSectionHeader}>
             <Text style={styles.reelsSectionTitle}>Reels</Text>
@@ -297,7 +381,7 @@ const FeedScreen: React.FC = () => {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.reelsScrollContent}
           >
-            {reels.slice(0, 12).map((reel) => (
+            {visibleReels.slice(0, 12).map((reel) => (
               <TouchableOpacity
                 key={reel._id}
                 activeOpacity={0.9}
@@ -310,9 +394,19 @@ const FeedScreen: React.FC = () => {
                 }
               >
                 <View style={styles.reelCardThumb}>
-                  <View style={styles.reelCardPlaceholder}>
-                    <Ionicons name="play" size={32} color="rgba(255,255,255,0.9)" />
-                  </View>
+                  <ImageBackground
+                    source={
+                      reelThumbnails[reel._id]
+                        ? { uri: reelThumbnails[reel._id] }
+                        : require('../../assets/login-bg.png')
+                    }
+                    style={styles.reelCardPlaceholder}
+                    imageStyle={{ borderRadius: 12 }}
+                  >
+                    <View style={styles.reelCardPlayOverlay}>
+                      <Ionicons name="play" size={32} color="rgba(255,255,255,0.95)" />
+                    </View>
+                  </ImageBackground>
                   {reel.user?.avatar ? (
                     <View style={styles.reelCardAvatarWrap}>
                       <Image source={{ uri: reel.user.avatar }} style={styles.reelCardAvatar} />
@@ -378,17 +472,7 @@ const FeedScreen: React.FC = () => {
         key={`feed-${sortBy}-${activityFilter}-${tagFromParams ?? ''}`}
         ref={listRef}
         data={visiblePosts}
-        renderItem={({ item }) => (
-          <PostCard
-            post={item}
-            onLike={handleLike}
-            currentUserId={user?._id}
-            saved={savedPostIds.has(item._id)}
-            onBookmark={user ? handleBookmark : undefined}
-            onHidePost={handleHidePost}
-            onMuteUser={handleMuteUser}
-          />
-        )}
+        renderItem={renderPostItem}
         keyExtractor={(item) => item._id}
         ListHeaderComponent={<SmartHeader />}
         refreshControl={
@@ -581,6 +665,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
   },
   reelCardPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reelCardPlayOverlay: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',

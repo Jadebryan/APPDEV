@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   FlatList,
   Image,
+  ImageBackground,
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
@@ -14,7 +15,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useAuth } from '../context/AuthContext';
+import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 import { Post, Reel } from '../types';
 import { userService, reelService } from '../services/api';
 import { ProfileStackParamList } from '../navigation/types';
@@ -41,6 +44,7 @@ const ProfileScreen: React.FC = () => {
   const [tab, setTab] = useState<TabType>('posts');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [reelThumbnails, setReelThumbnails] = useState<Record<string, string>>({});
 
   const openSavedSection = (item: (typeof SAVED_SECTIONS)[0]) => {
     const mainTabs = (navigation.getParent() as any)?.getParent?.();
@@ -71,6 +75,70 @@ const ProfileScreen: React.FC = () => {
   useEffect(() => {
     if (user) loadData();
   }, [user, loadData]);
+
+  // Generate thumbnails for reels - optimized for faster loading
+  useEffect(() => {
+    if (tab !== 'reels' || reels.length === 0) return;
+    
+    let cancelled = false;
+    const loadThumbs = async () => {
+      const toGenerate = reels.filter((r) => !reelThumbnails[r._id]);
+      if (toGenerate.length === 0) return;
+      
+      // Prioritize first 9 items (first 3 rows of grid) for immediate visibility
+      const INITIAL_BATCH = 9;
+      const initialBatch = toGenerate.slice(0, INITIAL_BATCH);
+      const remainingBatch = toGenerate.slice(INITIAL_BATCH);
+      
+      // Generate initial batch first (visible items)
+      const generateBatch = async (batch: typeof reels) => {
+        if (cancelled || batch.length === 0) return;
+        
+        const thumbnailPromises = batch.map(async (reel) => {
+          try {
+            // Use lower quality and earlier timestamp for faster generation
+            const { uri } = await VideoThumbnails.getThumbnailAsync(reel.videoUri, {
+              time: 500, // Earlier timestamp for faster access
+              quality: 0.7, // Lower quality for faster generation
+            });
+            return { reelId: reel._id, uri };
+          } catch {
+            return null;
+          }
+        });
+        
+        const results = await Promise.all(thumbnailPromises);
+        if (!cancelled) {
+          const updates: Record<string, string> = {};
+          results.forEach((result) => {
+            if (result) {
+              updates[result.reelId] = result.uri;
+            }
+          });
+          if (Object.keys(updates).length > 0) {
+            setReelThumbnails((prev) => ({ ...prev, ...updates }));
+          }
+        }
+      };
+      
+      // Generate initial batch immediately
+      await generateBatch(initialBatch);
+      
+      // Generate remaining items in smaller batches
+      if (!cancelled && remainingBatch.length > 0) {
+        const BATCH_SIZE = 6;
+        for (let i = 0; i < remainingBatch.length; i += BATCH_SIZE) {
+          if (cancelled) break;
+          const batch = remainingBatch.slice(i, i + BATCH_SIZE);
+          await generateBatch(batch);
+        }
+      }
+    };
+    loadThumbs();
+    return () => {
+      cancelled = true;
+    };
+  }, [reels, reelThumbnails, tab]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -141,9 +209,19 @@ const ProfileScreen: React.FC = () => {
         onPress={() => openReel(item)}
         activeOpacity={0.8}
       >
-        <View style={styles.reelThumbPlaceholder}>
-          <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.9)" />
-        </View>
+        <ImageBackground
+          source={
+            reelThumbnails[item._id]
+              ? { uri: reelThumbnails[item._id] }
+              : require('../../assets/login-bg.png')
+          }
+          style={styles.reelThumbImage}
+          imageStyle={{ borderRadius: 0 }}
+        >
+          <View style={styles.reelThumbOverlay}>
+            <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.95)" />
+          </View>
+        </ImageBackground>
       </TouchableOpacity>
     );
   };
@@ -152,13 +230,10 @@ const ProfileScreen: React.FC = () => {
     <>
       <View style={styles.profileSection}>
         <View style={styles.avatarContainer}>
-          {user.avatar ? (
-            <Image source={{ uri: user.avatar }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Text style={styles.avatarLetter}>{(user.username || '?').charAt(0).toUpperCase()}</Text>
-            </View>
-          )}
+          <Image
+            source={{ uri: user.avatar || DEFAULT_AVATAR_URI }}
+            style={styles.avatar}
+          />
         </View>
         <Text style={styles.username}>{user.username}</Text>
         {user.bio ? <Text style={styles.bio}>{user.bio}</Text> : null}
@@ -439,9 +514,15 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  reelThumbPlaceholder: {
-    flex: 1,
-    backgroundColor: '#333',
+  reelThumbImage: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reelThumbOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },

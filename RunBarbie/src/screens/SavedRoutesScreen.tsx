@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { userService, SavedRoute } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
+import ConfirmModal from '../components/ConfirmModal';
 
 type SavedRoutesRoute = RouteProp<FeedStackParamList, 'SavedRoutes'>;
 
@@ -26,6 +27,7 @@ const SavedRoutesScreen: React.FC = () => {
   };
   const [routes, setRoutes] = useState<SavedRoute[]>([]);
   const [loading, setLoading] = useState(true);
+  const [routeToRemove, setRouteToRemove] = useState<SavedRoute | null>(null);
 
   const loadRoutes = useCallback(async () => {
     try {
@@ -56,24 +58,20 @@ const SavedRoutesScreen: React.FC = () => {
     }
   };
 
-  const handleRemove = (route: SavedRoute) => {
-    Alert.alert('Remove route', `Remove "${route.name || 'Saved route'}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await userService.removeSavedRoute(route.postId);
-            setRoutes((prev) => prev.filter((r) => r.postId !== route.postId));
-            showToast('Route removed', 'success');
-          } catch {
-            showToast('Failed to remove route', 'info');
-          }
-        },
-      },
-    ]);
-  };
+  const handleRemove = (route: SavedRoute) => setRouteToRemove(route);
+
+  const handleConfirmRemove = useCallback(async () => {
+    const route = routeToRemove;
+    setRouteToRemove(null);
+    if (!route) return;
+    try {
+      await userService.removeSavedRoute(route.postId);
+      setRoutes((prev) => prev.filter((r) => r.postId !== route.postId));
+      showToast('Route removed', 'success');
+    } catch {
+      showToast('Failed to remove route', 'info');
+    }
+  }, [routeToRemove, showToast]);
 
   const renderItem = ({ item }: { item: SavedRoute }) => (
     <View style={styles.card}>
@@ -126,6 +124,17 @@ const SavedRoutesScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <ConfirmModal
+        visible={!!routeToRemove}
+        onClose={() => setRouteToRemove(null)}
+        title="Remove route"
+        message={routeToRemove ? `Remove "${routeToRemove.name || 'Saved route'}"? This cannot be undone.` : ''}
+        confirmLabel="Remove"
+        onConfirm={handleConfirmRemove}
+        destructive
+        icon="trail-sign-outline"
+      />
     </SafeAreaView>
   );
 };

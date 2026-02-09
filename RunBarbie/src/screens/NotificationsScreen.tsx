@@ -77,25 +77,31 @@ const NotificationsScreen: React.FC = () => {
   const renderIcon = (type: NotificationType) => {
     switch (type) {
       case 'like':
+      case 'reel_like':
         return <Ionicons name="heart" size={14} color="#FF69B4" />;
       case 'comment':
+      case 'mention':
         return <Ionicons name="chatbubble" size={14} color="#666" />;
       case 'follow':
         return <Ionicons name="person-add" size={14} color="#0095F6" />;
+      case 'tag':
+        return <Ionicons name="pricetag" size={14} color="#0095F6" />;
       default:
-        return null;
+        return <Ionicons name="notifications" size={14} color="#666" />;
     }
   };
 
   const handlePressItem = (item: NotificationItem) => {
     if (!item.read) markAsRead(item.id);
-    if (item.postId) {
+    if (item.postId && (item.type === 'like' || item.type === 'comment' || item.type === 'mention' || item.type === 'tag')) {
       navigation.navigate('Comments', {
         postId: item.postId,
         username: item.username,
         caption: item.text || '',
         image: item.postImage || 'https://images.unsplash.com/photo-1544966503-7cc75df67383?w=400',
       });
+    } else if (item.reelId && item.type === 'reel_like') {
+      (navigation.getParent() as any)?.navigate?.('Reels', { screen: 'ReelsHome', params: { initialReelId: item.reelId } });
     } else if (item.type === 'follow') {
       navigation.navigate('FeedHome');
     }

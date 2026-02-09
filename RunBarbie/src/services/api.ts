@@ -16,6 +16,9 @@ function getApiBaseUrl(): string {
   return 'https://your-production-url.com/api';
 }
 const API_BASE_URL = getApiBaseUrl();
+if (__DEV__ && typeof console !== 'undefined') {
+  console.log('[API] Base URL:', API_BASE_URL);
+}
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -199,6 +202,11 @@ const realPostService = {
     return response.data;
   },
 
+  updatePost: async (postId: string, updates: Partial<CreatePostData>): Promise<Post> => {
+    const response = await api.patch(`/posts/${postId}`, updates);
+    return response.data;
+  },
+
   likePost: async (postId: string): Promise<Post> => {
     const response = await api.post(`/posts/${postId}/like`);
     return response.data;
@@ -226,6 +234,11 @@ const realPostService = {
 
   reportPost: async (postId: string, body: { reason: string; comment?: string }): Promise<{ ok: boolean; message?: string }> => {
     const response = await api.post(`/posts/${postId}/report`, body);
+    return response.data;
+  },
+
+  deletePost: async (postId: string): Promise<{ ok: boolean }> => {
+    const response = await api.delete(`/posts/${postId}`);
     return response.data;
   },
 };
@@ -308,13 +321,40 @@ const realUserService = {
     const response = await api.get('/users/me/saved-reels');
     return response.data;
   },
+
+  registerPushToken: async (expoPushToken: string): Promise<{ ok: boolean }> => {
+    const response = await api.patch('/users/me/push-token', { expoPushToken });
+    return response.data;
+  },
 };
 
-// Real search (stubs; Facebook trail events when token provided; recent searches from storage)
+// Real search (users/tags from API; Facebook trail events when token provided; recent searches from storage)
 const realSearchService = {
-  searchUsers: async (_q: string): Promise<User[]> => [],
-  searchTags: async (_q: string): Promise<SearchTag[]> => [],
-  getTrendingTags: async (): Promise<SearchTag[]> => [],
+  /** Search users by username or registered name/email via backend. Expects `/search/users?q=` endpoint. */
+  searchUsers: async (q: string): Promise<User[]> => {
+    const trimmed = q.trim();
+    if (!trimmed) return [];
+    const res = await api.get<User[]>('/search/users', { params: { q: trimmed } });
+    return res.data;
+  },
+
+  /** Search tags/hashtags via backend. Expects `/search/tags?q=` endpoint. */
+  searchTags: async (q: string): Promise<SearchTag[]> => {
+    const trimmed = q.trim();
+    if (!trimmed) return [];
+    const res = await api.get<SearchTag[]>('/search/tags', { params: { q: trimmed } });
+    return res.data;
+  },
+
+  /** Trending tags from backend. Expects `/search/tags/trending` endpoint. Falls back to [] if missing. */
+  getTrendingTags: async (): Promise<SearchTag[]> => {
+    try {
+      const res = await api.get<SearchTag[]>('/search/tags/trending');
+      return res.data;
+    } catch {
+      return [];
+    }
+  },
   getRecentSearches: async (): Promise<string[]> => storage.getRecentSearches(),
   addRecentSearch: async (term: string): Promise<void> => {
     const list = await storage.getRecentSearches();
@@ -326,7 +366,27 @@ const realSearchService = {
   clearRecentSearches: async (): Promise<void> => {
     await storage.setRecentSearches([]);
   },
-  getSuggestedUsers: async (): Promise<User[]> => [],
+  /**
+   * Suggested accounts to follow. Expects `/search/users/suggested` endpoint.
+   * If the backend doesn't implement this yet (404), gracefully fall back to [] so the app doesn't error.
+   */
+  getSuggestedUsers: async (): Promise<User[]> => {
+    try {
+      const res = await api.get<User[]>('/search/users/suggested');
+      return res.data;
+    } catch {
+      return [];
+    }
+  },
+  /** Get trending posts and reels sorted by likes */
+  getTrending: async (): Promise<Array<Post | Reel & { type: 'post' | 'reel'; likeCount: number }>> => {
+    try {
+      const res = await api.get<Array<Post | Reel & { type: 'post' | 'reel'; likeCount: number }>>('/search/trending');
+      return res.data;
+    } catch {
+      return [];
+    }
+  },
   getUpcomingTrailPosts: async (facebookAccessToken?: string | null): Promise<UpcomingTrailPost[]> => {
     const token =
       facebookAccessToken ??
@@ -367,6 +427,10 @@ const realReelService = {
     const res = await api.post<{ ok: boolean; message?: string }>(`/reels/${reelId}/report`, body);
     return res.data;
   },
+  deleteReel: async (reelId: string): Promise<{ ok: boolean }> => {
+    const res = await api.delete<{ ok: boolean }>(`/reels/${reelId}`);
+    return res.data;
+  },
 };
 
 // Upload to Cloudinary via server (photos + videos)
@@ -375,27 +439,57 @@ export const uploadService = {
     const res = await api.post<{ url: string }>('/upload/image', { image: base64Image });
     return res.data.url;
   },
-  uploadVideo: async (videoUri: string): Promise<string> => {
+  /** 5 min timeout for large reels; optional onProgress(0–100) for UI. Optional trim params for video trimming. */
+  uploadVideo: async (videoUri: string, onProgress?: (percent: number) => void, trimParams?: { startTime: number; endTime: number }): Promise<string> => {
     const formData = new FormData();
     formData.append('video', {
       uri: videoUri,
       type: 'video/mp4',
       name: 'video.mp4',
     } as unknown as Blob);
-    const token = await storage.getToken();
-    const res = await fetch(`${API_BASE_URL}/upload/video`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: formData,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error || 'Video upload failed');
+    
+    // Add trim parameters if provided
+    if (trimParams) {
+      formData.append('trimStartTime', trimParams.startTime.toString());
+      formData.append('trimEndTime', trimParams.endTime.toString());
     }
-    const data = await res.json();
-    return data.url;
+    
+    const token = await storage.getToken();
+    const VIDEO_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE_URL}/upload/video`);
+      xhr.timeout = VIDEO_UPLOAD_TIMEOUT_MS;
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      });
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            resolve(data.url);
+          } catch {
+            reject(new Error('Video upload failed'));
+          }
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err?.error || 'Video upload failed'));
+          } catch {
+            reject(new Error('Video upload failed'));
+          }
+        }
+      });
+      xhr.addEventListener('error', () => reject(new Error('Network error. Check your connection.')));
+      xhr.addEventListener('timeout', () => reject(new Error('Upload took too long. Try a shorter video or better connection.')));
+
+      xhr.send(formData);
+    });
   },
   uploadStoryImage: async (base64Image: string): Promise<string> => {
     const res = await api.post<{ url: string }>('/upload/story', { image: base64Image });
@@ -404,12 +498,29 @@ export const uploadService = {
 };
 
 const realChatService = {
-  getConversations: async (): Promise<Conversation[]> => [],
-  getMessages: async (_id: string): Promise<Message[]> => [],
-  sendMessage: async (_id: string, _text: string): Promise<Message> => ({ _id: '', conversationId: '', senderId: '', text: '', createdAt: '', read: false }),
-  markConversationRead: async (_id: string): Promise<void> => {},
-  getActiveUsers: async (): Promise<User[]> => [],
-  getOrCreateConversation: async (_id: string): Promise<Conversation> => ({ _id: '', participant: {} as User, lastMessage: { text: '', createdAt: '', senderId: '' }, unreadCount: 0, updatedAt: '' }),
+  getConversations: async (): Promise<Conversation[]> => {
+    const res = await api.get<Conversation[]>('/chats/conversations');
+    return res.data;
+  },
+  getMessages: async (conversationId: string): Promise<Message[]> => {
+    const res = await api.get<Message[]>(`/chats/conversations/${conversationId}/messages`);
+    return res.data;
+  },
+  sendMessage: async (conversationId: string, text: string): Promise<Message> => {
+    const res = await api.post<Message>(`/chats/conversations/${conversationId}/messages`, { text });
+    return res.data;
+  },
+  markConversationRead: async (conversationId: string): Promise<void> => {
+    await api.patch(`/chats/conversations/${conversationId}/read`);
+  },
+  getActiveUsers: async (): Promise<User[]> => {
+    const res = await api.get<User[]>('/chats/active-users');
+    return res.data;
+  },
+  getOrCreateConversation: async (userId: string): Promise<Conversation> => {
+    const res = await api.get<Conversation>(`/chats/conversations/${userId}`);
+    return res.data;
+  },
 };
 
 // Story API (real only; mock uses StoriesContext only)
@@ -422,6 +533,9 @@ export interface StoryApi {
   caption?: string;
   activityType?: string;
   createdAt: string;
+  viewCount?: number;
+  likeCount?: number;
+  likedByMe?: boolean;
 }
 
 export const storyService = {
@@ -433,12 +547,41 @@ export const storyService = {
     const res = await api.post<StoryApi>('/stories', data);
     return res.data;
   },
+
+  deleteStory: async (storyId: string): Promise<{ ok: boolean }> => {
+    const res = await api.delete<{ ok: boolean }>(`/stories/${storyId}`);
+    return res.data;
+  },
+
+  markViewed: async (storyId: string): Promise<{ ok: boolean }> => {
+    const res = await api.post<{ ok: boolean }>(`/stories/${storyId}/view`);
+    return res.data;
+  },
+
+  getViewers: async (
+    storyId: string
+  ): Promise<{ total: number; viewers: { id: string; username: string; avatar?: string }[] }> => {
+    const res = await api.get<{ total: number; viewers: { id: string; username: string; avatar?: string }[] }>(
+      `/stories/${storyId}/viewers`
+    );
+    return res.data;
+  },
+
+  likeStory: async (storyId: string): Promise<{ liked: boolean; likeCount: number }> => {
+    const res = await api.post<{ liked: boolean; likeCount: number }>(`/stories/${storyId}/like`);
+    return res.data;
+  },
+
+  replyToStory: async (storyId: string, text: string): Promise<{ ok: boolean; conversationId?: string }> => {
+    const res = await api.post<{ ok: boolean; conversationId?: string }>(`/stories/${storyId}/reply`, { text });
+    return res.data;
+  },
 };
 
 // Notifications API (auth required)
 export interface NotificationApi {
   id: string;
-  type: 'like' | 'comment' | 'follow';
+  type: 'like' | 'comment' | 'follow' | 'reel_like' | 'mention' | 'tag' | 'story_like' | 'story_reply';
   username: string;
   avatar?: string;
   text: string;
@@ -446,6 +589,7 @@ export interface NotificationApi {
   read: boolean;
   postId?: string;
   postImage?: string;
+  reelId?: string;
 }
 
 export const notificationService = {

@@ -48,7 +48,7 @@ router.get('/', async (req, res) => {
 // Create post (image = Cloudinary URL, or images = array of URLs)
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const { image, images: imagesArray, caption, activityType, distance, duration, location } = req.body;
+    const { image, images: imagesArray, caption, activityType, distance, duration, location, taggedUserIds } = req.body;
 
     const imageUrls = Array.isArray(imagesArray) && imagesArray.length > 0
       ? imagesArray
@@ -57,6 +57,8 @@ router.post('/', authMiddleware, async (req, res) => {
     if (imageUrls.length === 0 || !activityType) {
       return res.status(400).json({ error: 'At least one image and activity type are required' });
     }
+
+    const tagIds = Array.isArray(taggedUserIds) ? taggedUserIds.filter(id => id && typeof id === 'string').slice(0, 20) : [];
 
     const post = new Post({
       userId: req.user._id,
@@ -67,10 +69,27 @@ router.post('/', authMiddleware, async (req, res) => {
       distance,
       duration,
       location: location || undefined,
+      taggedUserIds: tagIds.length ? tagIds : undefined,
     });
 
     await post.save();
     await post.populate('userId', 'username avatar bio followers following createdAt');
+
+    const postOwnerId = post.userId && (post.userId._id ? post.userId._id.toString() : post.userId.toString());
+    const authorId = req.user._id.toString();
+    const mongoose = require('mongoose');
+    const { sendPushToUser } = require('../utils/push');
+    const authorUsername = req.user.username || 'Someone';
+    for (const taggedId of tagIds) {
+      if (taggedId === authorId || !mongoose.Types.ObjectId.isValid(taggedId)) continue;
+      await Notification.create({
+        toUserId: taggedId,
+        fromUserId: req.user._id,
+        type: 'tag',
+        postId: post._id,
+      }).catch(() => {});
+      sendPushToUser(taggedId, 'Tagged', `${authorUsername} tagged you in a post`, { postId: post._id.toString(), type: 'tag' }).catch(() => {});
+    }
 
     const u = post.userId;
     const isPopulated = u && typeof u === 'object' && 'username' in u;
@@ -151,7 +170,41 @@ router.post('/:id/comments', authMiddleware, async (req, res) => {
         commentId: comment._id,
         commentText: (comment.text || '').slice(0, 100),
       }).catch(() => {});
+
+      // Push: "X commented on your post" (IG-style)
+      const { sendPushToUser } = require('../utils/push');
+      const commenterUsername = req.user.username || 'Someone';
+      const preview = (comment.text || '').trim().slice(0, 50);
+      const body = preview ? `${commenterUsername} commented: "${preview}${preview.length >= 50 ? '…' : ''}"` : `${commenterUsername} commented on your post`;
+      sendPushToUser(post.userId, 'Comment', body, { postId: post._id.toString(), type: 'comment' }).catch(() => {});
     }
+
+    // Mentions (IG-style): parse @username in comment, notify each mentioned user
+    const mentionRegex = /@([a-zA-Z0-9_.]+)/g;
+    const usernames = [];
+    let m;
+    while ((m = mentionRegex.exec(comment.text || '')) !== null) {
+      const name = m[1];
+      if (name && !usernames.includes(name)) usernames.push(name);
+    }
+    for (const username of usernames) {
+      const mentionedUser = await User.findOne({ username }).select('_id').lean();
+      if (!mentionedUser) continue;
+      const mentionedId = mentionedUser._id.toString();
+      if (mentionedId === commenterId || mentionedId === postOwnerId) continue;
+      await Notification.create({
+        toUserId: mentionedUser._id,
+        fromUserId: req.user._id,
+        type: 'mention',
+        postId: post._id,
+        commentId: comment._id,
+        commentText: (comment.text || '').slice(0, 100),
+      }).catch(() => {});
+      const { sendPushToUser } = require('../utils/push');
+      const commenterUsername = req.user.username || 'Someone';
+      sendPushToUser(mentionedUser._id, 'Mention', `${commenterUsername} mentioned you in a comment`, { postId: post._id.toString(), type: 'mention' }).catch(() => {});
+    }
+
     await comment.populate('userId', 'username avatar');
     const u = comment.userId;
     const isPopulated = u && typeof u === 'object' && 'username' in u;
@@ -230,53 +283,105 @@ router.post('/:id/report', authMiddleware, async (req, res) => {
   }
 });
 
+// Delete post (auth, owner only)
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    const ownerId = (post.userId && post.userId.toString && post.userId.toString()) || post.userId.toString();
+    if (ownerId !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'You can only delete your own post' });
+    }
+    const Comment = require('../models/Comment');
+    await Comment.deleteMany({ postId: post._id });
+    await Notification.deleteMany({ postId: post._id });
+    await Post.findByIdAndDelete(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Like/Unlike post
 router.post('/:id/like', authMiddleware, async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    const mongoose = require('mongoose');
+    const userId = req.user._id;
+    const postId = req.params.id;
 
-    if (!post) {
+    // First check if post exists and get owner info
+    const postCheck = await Post.findById(postId).select('userId likes').lean();
+    if (!postCheck) {
       return res.status(404).json({ error: 'Post not found' });
     }
 
-    const userId = req.user._id.toString();
-    const isLiked = post.likes.some(like => like.toString() === userId);
+    const userIdStr = userId.toString();
+    const postOwnerId = postCheck.userId ? postCheck.userId.toString() : '';
+    const currentLikes = (postCheck.likes || []).map(id => id.toString());
+    const isLiked = currentLikes.includes(userIdStr);
 
+    // Use atomic operation to avoid version conflicts
+    let updatedPost;
     if (isLiked) {
-      post.likes = post.likes.filter(like => like.toString() !== userId);
+      // Unlike: remove user from likes array
+      updatedPost = await Post.findByIdAndUpdate(
+        postId,
+        { $pull: { likes: userId } },
+        { new: true }
+      );
     } else {
-      post.likes.push(userId);
-      const postOwnerId = post.userId && post.userId.toString ? post.userId.toString() : post.userId.toString();
-      if (postOwnerId !== userId) {
+      // Like: add user to likes array (using $addToSet to prevent duplicates)
+      updatedPost = await Post.findByIdAndUpdate(
+        postId,
+        { $addToSet: { likes: userId } },
+        { new: true }
+      );
+
+      // Send notification if not liking own post
+      if (postOwnerId !== userIdStr) {
         await Notification.create({
-          toUserId: post.userId,
-          fromUserId: req.user._id,
+          toUserId: postCheck.userId,
+          fromUserId: userId,
           type: 'like',
-          postId: post._id,
+          postId: postId,
         }).catch(() => {});
+
+        // Push: "X liked your post"
+        const { sendPushToUser } = require('../utils/push');
+        const likerUsername = req.user.username || 'Someone';
+        sendPushToUser(
+          postCheck.userId,
+          'Like',
+          `${likerUsername} liked your post`,
+          { postId: postId, type: 'like' }
+        ).catch(() => {});
       }
     }
 
-    await post.save();
-    await post.populate('userId', 'username avatar bio followers following createdAt');
-    await post.populate('likes', 'username');
+    if (!updatedPost) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
 
-    const u = post.userId;
+    await updatedPost.populate('userId', 'username avatar bio followers following createdAt');
+    await updatedPost.populate('likes', 'username');
+
+    const u = updatedPost.userId;
     const isPopulated = u && typeof u === 'object' && 'username' in u;
     const userObj = isPopulated
       ? { _id: u._id.toString(), username: u.username, avatar: u.avatar || '', bio: u.bio || '', followers: u.followers || [], following: u.following || [], createdAt: u.createdAt?.toISOString?.() || '' }
-      : { _id: (post.userId && post.userId.toString) ? post.userId.toString() : '', username: 'Unknown', avatar: '', bio: '', followers: [], following: [], createdAt: '' };
+      : { _id: (updatedPost.userId && updatedPost.userId.toString) ? updatedPost.userId.toString() : '', username: 'Unknown', avatar: '', bio: '', followers: [], following: [], createdAt: '' };
 
     const transformedPost = {
-      ...post.toObject(),
+      ...updatedPost.toObject(),
       user: userObj,
-      _id: post._id.toString(),
+      _id: updatedPost._id.toString(),
       userId: userObj._id,
-      likes: (post.likes || []).map((l) => (l && l._id ? l._id.toString() : l.toString())),
+      likes: (updatedPost.likes || []).map((l) => (l && l._id ? l._id.toString() : l.toString())),
     };
 
     res.json(transformedPost);
   } catch (error) {
+    console.error('Like post error:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -38,6 +38,11 @@ const postSchema = new mongoose.Schema({
     longitude: Number,
     name: String,
   },
+  /** Users tagged in this post (IG-style); each gets a notification */
+  taggedUserIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
 }, {
   timestamps: true,
 });

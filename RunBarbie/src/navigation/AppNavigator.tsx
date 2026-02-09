@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { View, Image, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Image, StyleSheet, ActivityIndicator, Text } from 'react-native';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -23,6 +23,8 @@ import ChatDetailScreen from '../screens/ChatDetailScreen';
 import ChatInfoScreen from '../screens/ChatInfoScreen';
 import VideoCallScreen from '../screens/VideoCallScreen';
 import { useAuth } from '../context/AuthContext';
+import { chatService } from '../services/api';
+import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import ProfileMenuScreen from '../screens/ProfileMenuScreen';
 import NotificationsSettingsScreen from '../screens/NotificationsSettingsScreen';
@@ -118,6 +120,29 @@ const DEFAULT_TAB_BAR_STYLE = {
 const MainTabs = () => {
   const { user } = useAuth();
 
+  // Total unread chats count for badge (Messenger-style)
+  const [unreadChatsCount, setUnreadChatsCount] = useState(0);
+
+  const loadUnreadChats = useCallback(async () => {
+    if (!user?._id) {
+      setUnreadChatsCount(0);
+      return;
+    }
+    try {
+      const conversations = await chatService.getConversations();
+      const total = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+      setUnreadChatsCount(total);
+    } catch (e) {
+      // Fail silently; badge is best-effort
+    }
+  }, [user?._id]);
+
+  useEffect(() => {
+    loadUnreadChats();
+    const id = setInterval(loadUnreadChats, 10000); // refresh every 10s while app is active
+    return () => clearInterval(id);
+  }, [loadUnreadChats]);
+
   return (
     <Tab.Navigator
       screenOptions={({ route, navigation }) => {
@@ -133,57 +158,67 @@ const MainTabs = () => {
           (focusedRoute?.name === 'Reels' && currentScreenName === 'CreateReel');
 
         return {
-        tabBarStyle: hideTabBar ? { display: 'none' } : DEFAULT_TAB_BAR_STYLE,
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName: keyof typeof Ionicons.glyphMap;
+          tabBarStyle: hideTabBar ? { display: 'none' } : DEFAULT_TAB_BAR_STYLE,
+          tabBarIcon: ({ focused, color, size }) => {
+            let iconName: keyof typeof Ionicons.glyphMap;
 
-          if (route.name === 'FeedStack') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Reels') {
-            // Reels/Video icon (play button)
-            iconName = focused ? 'play-circle' : 'play-circle-outline';
-          } else if (route.name === 'Search') {
-            iconName = focused ? 'search' : 'search-outline';
-          } else if (route.name === 'ChatsStack') {
-            iconName = focused ? 'chatbubble' : 'chatbubble-outline';
-          } else if (route.name === 'ProfileStack') {
-            // Return circular avatar for profile tab
-            if (focused) {
-              return (
-                <View style={styles.profileTab}>
-                  {user?.avatar ? (
-                    <Image source={{ uri: user.avatar }} style={styles.profileAvatar} />
-                  ) : (
-                    <View style={[styles.profileAvatar, styles.profilePlaceholder]}>
-                      <Ionicons name="person" size={20} color="#000" />
-                    </View>
-                  )}
-                </View>
-              );
+            if (route.name === 'FeedStack') {
+              iconName = focused ? 'home' : 'home-outline';
+            } else if (route.name === 'Reels') {
+              // Reels/Video icon (play button)
+              iconName = focused ? 'play-circle' : 'play-circle-outline';
+            } else if (route.name === 'Search') {
+              iconName = focused ? 'search' : 'search-outline';
+            } else if (route.name === 'ChatsStack') {
+              iconName = focused ? 'chatbubble' : 'chatbubble-outline';
+            } else if (route.name === 'ProfileStack') {
+              // Return circular avatar for profile tab
+              if (focused) {
+                return (
+                  <View style={styles.profileTab}>
+                    <Image
+                      source={{ uri: user?.avatar || DEFAULT_AVATAR_URI }}
+                      style={styles.profileAvatar}
+                    />
+                  </View>
+                );
+              } else {
+                return (
+                  <View style={styles.profileTab}>
+                    <Image
+                      source={{ uri: user?.avatar || DEFAULT_AVATAR_URI }}
+                      style={styles.profileAvatarOutline}
+                    />
+                  </View>
+                );
+              }
             } else {
+              iconName = 'help-outline';
+            }
+
+            // Chats tab: wrap icon with numeric unread badge (Messenger-style)
+            if (route.name === 'ChatsStack') {
               return (
-                <View style={styles.profileTab}>
-                  {user?.avatar ? (
-                    <Image source={{ uri: user.avatar }} style={styles.profileAvatarOutline} />
-                  ) : (
-                    <View style={[styles.profileAvatarOutline, styles.profilePlaceholder]}>
-                      <Ionicons name="person-outline" size={20} color="#000" />
+                <View style={styles.chatTabIconWrap}>
+                  <Ionicons name={iconName} size={size} color={color} />
+                  {unreadChatsCount > 0 && (
+                    <View style={styles.chatBadge}>
+                      <Text style={styles.chatBadgeText}>
+                        {unreadChatsCount > 99 ? '99+' : unreadChatsCount}
+                      </Text>
                     </View>
                   )}
                 </View>
               );
             }
-          } else {
-            iconName = 'help-outline';
-          }
 
-          return <Ionicons name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: '#000',
-        tabBarInactiveTintColor: '#000',
-        tabBarShowLabel: false,
-        headerShown: false,
-      };
+            return <Ionicons name={iconName} size={size} color={color} />;
+          },
+          tabBarActiveTintColor: '#000',
+          tabBarInactiveTintColor: '#000',
+          tabBarShowLabel: false,
+          headerShown: false,
+        };
       }}
     >
       <Tab.Screen name="FeedStack" component={FeedStackNavigator} options={{ title: 'Feed' }} />
@@ -225,6 +260,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  chatTabIconWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -8,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: '#FF3B5C',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chatBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
 });
 
 const AppNavigator = () => {
@@ -242,7 +300,10 @@ const AppNavigator = () => {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
-          <Stack.Screen name="MainTabs" component={MainTabs} />
+          <Stack.Screen
+            name="MainTabs"
+            component={MainTabs}
+          />
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />

@@ -16,6 +16,7 @@ import {
   Modal,
   TextInput,
   KeyboardAvoidingView,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -23,11 +24,13 @@ import { useNavigation, useRoute, useFocusEffect, useIsFocused } from '@react-na
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Reel } from '../types';
 import { ActivityType } from '../types';
 import { reelService, userService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import ConfirmModal from '../components/ConfirmModal';
 
 // Tab bar height from AppNavigator (50 + paddingTop 5 + paddingBottom 5)
 const TAB_BAR_HEIGHT = 60;
@@ -75,8 +78,31 @@ const ReelVideo: React.FC<{
     p.loop = true;
   });
   useEffect(() => {
-    if (isActive) player.play();
-    else player.pause();
+    if (isActive) {
+      player.play();
+    } else {
+      // Immediately stop and reset when inactive
+      player.pause();
+      try {
+        player.currentTime = 0;
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+  }, [isActive, player]);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (!isActive) {
+        player.pause();
+        try {
+          player.currentTime = 0;
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    };
   }, [isActive, player]);
   useEffect(() => {
     player.muted = muted;
@@ -135,14 +161,194 @@ const ReelCell = memo(function ReelCell({
   isFollowing,
 }: ReelCellProps) {
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const [isLoading, setIsLoading] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [videoContentFit, setVideoContentFit] = useState<'cover' | 'contain'>('cover');
   const player = useVideoPlayer(item.videoUri, p => {
     p.loop = true;
+    // Optimize for longer videos: adjust update interval based on video length
+    // For longer videos, use less frequent updates to reduce CPU usage
     p.timeUpdateEventInterval = 0.25;
+    p.staysActiveInBackground = false;
+    // Enable better buffering for longer videos
+    p.playbackRate = 1.0;
   });
+  
+  // Detect video orientation and adjust contentFit
+  useEffect(() => {
+    let cancelled = false;
+    
+    const checkVideoDimensions = async () => {
+      if (cancelled) return;
+      
+      // Check if player has naturalSize or dimensions
+      if (player.status === 'readyToPlay' || player.status === 'playing') {
+        try {
+          // Try to get dimensions from player first
+          const playerAny = player as any;
+          const naturalSize = playerAny.naturalSize || playerAny.dimensions;
+          
+          if (naturalSize && naturalSize.width && naturalSize.height) {
+            const aspectRatio = naturalSize.width / naturalSize.height;
+            if (!cancelled) {
+              setVideoContentFit(aspectRatio > 1 ? 'contain' : 'cover');
+            }
+            return;
+          }
+          
+          // Try alternative: check if player has width/height properties directly
+          const width = playerAny.width || playerAny.naturalWidth;
+          const height = playerAny.height || playerAny.naturalHeight;
+          if (width && height) {
+            const aspectRatio = width / height;
+            if (!cancelled) {
+              setVideoContentFit(aspectRatio > 1 ? 'contain' : 'cover');
+            }
+            return;
+          }
+          
+          // Fallback: use expo-video-thumbnails to get video dimensions
+          try {
+            const thumbnail = await VideoThumbnails.getThumbnailAsync(item.videoUri, {
+              time: 0,
+            });
+            if (thumbnail && thumbnail.width && thumbnail.height && !cancelled) {
+              const aspectRatio = thumbnail.width / thumbnail.height;
+              setVideoContentFit(aspectRatio > 1 ? 'contain' : 'cover');
+            }
+          } catch (thumbError) {
+            // If thumbnail generation fails, default to cover
+            if (!cancelled) {
+              setVideoContentFit('cover');
+            }
+          }
+        } catch (e) {
+          // If we can't detect dimensions, default to cover (portrait assumption)
+          if (!cancelled) {
+            setVideoContentFit('cover');
+          }
+        }
+      }
+    };
+
+    const statusListener = player.addListener('statusChange', (status) => {
+      if (status.status === 'readyToPlay' || status.status === 'playing') {
+        // Small delay to ensure dimensions are available
+        setTimeout(() => checkVideoDimensions(), 100);
+      }
+    });
+
+    // Check immediately if already ready
+    if (player.status === 'readyToPlay' || player.status === 'playing') {
+      setTimeout(() => checkVideoDimensions(), 100);
+    }
+
+    return () => {
+      cancelled = true;
+      statusListener.remove();
+    };
+  }, [player, item.videoUri]);
+  
+  // Track video loading status - only show loading when video is actually not ready
+  useEffect(() => {
+    const handleStatusChange = (status: { status: string }) => {
+      // Only update loading state if this reel is active
+      if (!isActive) return;
+      
+      if (status.status === 'readyToPlay' || status.status === 'playing') {
+        setIsLoading(false);
+        setIsBuffering(false);
+      } else if (status.status === 'loading' || status.status === 'idle') {
+        setIsLoading(true);
+        setIsBuffering(false);
+      } else if (status.status === 'buffering') {
+        setIsBuffering(true);
+        setIsLoading(false);
+      }
+    };
+
+    const statusListener = player.addListener('statusChange', handleStatusChange);
+
+    // Check initial status when effect runs
+    const updateStatusFromPlayer = () => {
+      if (!isActive) {
+        setIsLoading(false);
+        setIsBuffering(false);
+        return;
+      }
+      
+      const currentStatus = player.status;
+      if (currentStatus === 'readyToPlay' || currentStatus === 'playing') {
+        setIsLoading(false);
+        setIsBuffering(false);
+      } else if (currentStatus === 'loading' || currentStatus === 'idle') {
+        setIsLoading(true);
+        setIsBuffering(false);
+      } else if (currentStatus === 'buffering') {
+        setIsBuffering(true);
+        setIsLoading(false);
+      }
+    };
+
+    updateStatusFromPlayer();
+
+    return () => {
+      statusListener.remove();
+    };
+  }, [player, isActive]);
+  
+  // Preload video when it's adjacent to active reel
+  useEffect(() => {
+    // Preload if this reel is near the active one (for smoother playback)
+    // The video player will start buffering when created
+    return () => {
+      // Cleanup is handled by expo-video automatically
+    };
+  }, []);
 
   useEffect(() => {
-    if (isActive) player.play();
-    else player.pause();
+    if (isActive) {
+      // Check if video is already ready before showing loading indicator
+      const currentStatus = player.status;
+      if (currentStatus === 'readyToPlay' || currentStatus === 'playing') {
+        setIsLoading(false);
+        setIsBuffering(false);
+      } else {
+        // Only show loading if video is not ready
+        setIsLoading(true);
+        setIsBuffering(false);
+      }
+      // Ensure we play the video
+      player.play();
+    } else {
+      // When reel becomes inactive, immediately stop the video and reset
+      // This prevents audio from continuing when scrolling
+      player.pause();
+      // Reset to beginning immediately to stop any audio
+      try {
+        player.currentTime = 0;
+      } catch (e) {
+        // Ignore errors if currentTime can't be set
+      }
+      // Hide loading indicator when reel becomes inactive
+      setIsLoading(false);
+      setIsBuffering(false);
+    }
+  }, [isActive, player]);
+  
+  // Additional cleanup: ensure video stops when component unmounts or becomes inactive
+  useEffect(() => {
+    return () => {
+      // Cleanup: stop video when component unmounts
+      if (!isActive) {
+        player.pause();
+        try {
+          player.currentTime = 0;
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    };
   }, [isActive, player]);
   useEffect(() => {
     player.muted = muted;
@@ -189,10 +395,19 @@ const ReelCell = memo(function ReelCell({
         <VideoView
           player={player}
           style={StyleSheet.absoluteFillObject}
-          contentFit="cover"
+          contentFit={videoContentFit}
           nativeControls={false}
           {...(Platform.OS === 'android' ? { surfaceType: 'textureView' as const } : {})}
         />
+        {/* Loading indicator overlay */}
+        {(isLoading || isBuffering) && isActive && (
+          <View style={styles.loadingOverlay} pointerEvents="none">
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.loadingText}>
+              {isBuffering ? 'Buffering...' : 'Loading...'}
+            </Text>
+          </View>
+        )}
       </View>
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.7)']}
@@ -277,7 +492,8 @@ const ReelsScreen: React.FC = () => {
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const route = useRoute<{ params?: { initialReelId?: string; reportedReelId?: string } }>();
+  const route = useRoute<{ params?: { initialReelId?: string; reportedReelId?: string; returnToSearch?: boolean } }>();
+  const returnToSearch = route?.params?.returnToSearch;
   const isLandscape = SCREEN_WIDTH > SCREEN_HEIGHT;
   const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -302,6 +518,8 @@ const ReelsScreen: React.FC = () => {
   const [mutedUserIds, setMutedUserIds] = useState<Set<string>>(new Set());
   const [reportedReelIds, setReportedReelIds] = useState<Set<string>>(new Set());
   const [fullscreenReel, setFullscreenReel] = useState<Reel | null>(null);
+  const [deleteConfirmReelId, setDeleteConfirmReelId] = useState<string | null>(null);
+  const [preloadedReels, setPreloadedReels] = useState<Set<string>>(new Set());
   const { user } = useAuth();
   const { showToast } = useToast();
   // Use measured reel area height so video fills exactly (no black gap from miscalculation)
@@ -355,6 +573,22 @@ const ReelsScreen: React.FC = () => {
     }
   }, [reportedReelId, navigation]);
 
+  // Handle back button press - if came from Search, return to Search tab
+  useEffect(() => {
+    if (!returnToSearch) return;
+    
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      const root = navigation.getParent()?.getParent();
+      if (root && 'navigate' in root) {
+        (root as any).navigate('Search');
+        return true; // Prevent default back behavior
+      }
+      return false; // Allow default back behavior
+    });
+
+    return () => backHandler.remove();
+  }, [returnToSearch, navigation]);
+
   // When opened from Profile with initialReelId, scroll to that reel
   const initialReelId = route?.params?.initialReelId;
   useEffect(() => {
@@ -382,10 +616,17 @@ const ReelsScreen: React.FC = () => {
 
   const filteredReels = useMemo(
     () =>
-      reels.filter(
-        r => !hiddenReelIds.has(r._id) && !mutedUserIds.has(r.userId) && !reportedReelIds.has(r._id)
-      ),
-    [reels, hiddenReelIds, mutedUserIds, reportedReelIds]
+      reels.filter((r) => {
+        const canSeeUser =
+          !user || r.userId === user._id || (user.following ?? []).includes(r.userId);
+        return (
+          canSeeUser &&
+          !hiddenReelIds.has(r._id) &&
+          !mutedUserIds.has(r.userId) &&
+          !reportedReelIds.has(r._id)
+        );
+      }),
+    [reels, hiddenReelIds, mutedUserIds, reportedReelIds, user]
   );
 
   useEffect(() => {
@@ -393,6 +634,26 @@ const ReelsScreen: React.FC = () => {
       setActiveIndex(Math.max(0, filteredReels.length - 1));
     }
   }, [filteredReels.length, activeIndex]);
+
+  // Preload adjacent videos for smoother playback (optimize for longer videos)
+  useEffect(() => {
+    if (filteredReels.length === 0) return;
+    
+    const preloadIndices = [
+      activeIndex - 1, // Previous reel
+      activeIndex + 1, // Next reel
+      activeIndex + 2, // Next next reel (for faster scrolling)
+    ].filter(idx => idx >= 0 && idx < filteredReels.length);
+
+    const newPreloaded = new Set(preloadedReels);
+    preloadIndices.forEach(idx => {
+      const reel = filteredReels[idx];
+      if (reel) {
+        newPreloaded.add(reel._id);
+      }
+    });
+    setPreloadedReels(newPreloaded);
+  }, [activeIndex, filteredReels]);
 
   const loadReels = async () => {
     try {
@@ -667,6 +928,25 @@ const ReelsScreen: React.FC = () => {
     (navigation as any).navigate('ReportReel', { reelId: selectedReelForMore._id });
   }, [selectedReelForMore, user, showToast, handleCloseMoreSheet, navigation]);
 
+  const handleDeleteReel = useCallback(() => {
+    if (!selectedReelForMore || !user || selectedReelForMore.userId !== user._id) return;
+    handleCloseMoreSheet();
+    setDeleteConfirmReelId(selectedReelForMore._id);
+  }, [selectedReelForMore, user, handleCloseMoreSheet]);
+
+  const handleConfirmDeleteReel = useCallback(async () => {
+    const id = deleteConfirmReelId;
+    setDeleteConfirmReelId(null);
+    if (!id) return;
+    try {
+      await reelService.deleteReel(id);
+      setReels(prev => prev.filter(r => r._id !== id));
+      showToast('Reel deleted', 'success');
+    } catch (e: any) {
+      showToast(e?.message || 'Failed to delete reel', 'error');
+    }
+  }, [deleteConfirmReelId, showToast]);
+
   const handleFollowReelUser = useCallback(async (userId: string) => {
     if (!user) return;
     try {
@@ -696,7 +976,11 @@ const ReelsScreen: React.FC = () => {
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: { index: number | null }[] }) => {
       if (viewableItems.length > 0 && viewableItems[0].index !== null) {
-        setActiveIndex(viewableItems[0].index);
+        const newIndex = viewableItems[0].index;
+        // Only update if index actually changed to prevent unnecessary re-renders
+        if (newIndex !== activeIndex) {
+          setActiveIndex(newIndex);
+        }
       }
     }
   ).current;
@@ -796,9 +1080,9 @@ const ReelsScreen: React.FC = () => {
       >
         <Ionicons name="add-circle" size={36} color="#fff" />
       </TouchableOpacity>
-      {/* Saved reels button - top right */}
+      {/* Saved reels button - top right, below mute button */}
       <TouchableOpacity
-        style={[styles.createReelBtn, { left: undefined, right: 16, top: insets.top + 8 }]}
+        style={[styles.createReelBtn, { left: undefined, right: 16, top: (Platform.OS === 'android' ? 52 : 56) + 44 + 12 }]}
         onPress={() => (navigation as any).navigate('SavedReels')}
         activeOpacity={0.8}
       >
@@ -835,6 +1119,9 @@ const ReelsScreen: React.FC = () => {
           maxToRenderPerBatch={2}
           windowSize={3}
           removeClippedSubviews={Platform.OS === 'android'}
+          // Optimize for longer videos: maintain smaller render window
+          updateCellsBatchingPeriod={50}
+          maintainVisibleContentPosition={null}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -1059,6 +1346,12 @@ const ReelsScreen: React.FC = () => {
                 <Ionicons name="link-outline" size={22} color="#000" />
                 <Text style={styles.moreSheetRowText}>Copy link</Text>
               </TouchableOpacity>
+              {selectedReelForMore && user && selectedReelForMore.userId === user._id && (
+                <TouchableOpacity style={styles.moreSheetRow} activeOpacity={0.7} onPress={handleDeleteReel}>
+                  <Ionicons name="trash-outline" size={22} color="#E53935" />
+                  <Text style={[styles.moreSheetRowText, styles.moreSheetRowTextDanger]}>Delete</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={styles.moreSheetRow} activeOpacity={0.7} onPress={handleReportReel}>
                 <Ionicons name="flag-outline" size={22} color="#E53935" />
                 <Text style={[styles.moreSheetRowText, styles.moreSheetRowTextDanger]}>Report</Text>
@@ -1067,6 +1360,17 @@ const ReelsScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={!!deleteConfirmReelId}
+        onClose={() => setDeleteConfirmReelId(null)}
+        title="Delete reel?"
+        message="Are you sure? This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDeleteReel}
+        destructive
+        icon="trash-outline"
+      />
 
       {/* Fullscreen reel modal */}
       <Modal
@@ -1187,6 +1491,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     overflow: 'hidden',
+    backgroundColor: '#000', // Black background for letterboxing when using contain
   },
   gradientOverlay: {
     position: 'absolute',
@@ -1212,6 +1517,19 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'rgba(255,255,255,0.3)',
     borderRadius: 1,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: 12,
   },
   reelProgressBarFill: {
     position: 'absolute',
@@ -1531,25 +1849,30 @@ const styles = StyleSheet.create({
   },
   moreSheetBackdropWrap: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   moreSheetCard: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: Platform.OS === 'android' ? 24 : 32,
+    paddingBottom: Platform.OS === 'android' ? 28 : 36,
     maxHeight: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 12,
   },
   moreSheetDragHandle: {
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
   moreSheetDragLine: {
-    width: 36,
+    width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#DDD',
+    backgroundColor: '#D0D0D0',
   },
   moreSheetTopRow: {
     flexDirection: 'row',

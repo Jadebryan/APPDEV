@@ -15,6 +15,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 import { Post, User } from '../types';
 import { userService } from '../services/api';
 import { FeedStackParamList } from '../navigation/types';
@@ -26,7 +27,7 @@ const UserProfileScreen: React.FC = () => {
   const navigation = useNavigation<UserProfileNav>();
   const route = useRoute<UserProfileRoute>();
   const { userId, username: paramUsername, avatar: paramAvatar, bio: paramBio } = route.params;
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, updateUser } = useAuth();
   const { width } = useWindowDimensions();
   const [profile, setProfile] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -76,7 +77,11 @@ const UserProfileScreen: React.FC = () => {
     if (!profile) return;
     try {
       await userService.followUser(profile._id);
+
+      // Optimistically toggle local following state
       setFollowing((prev) => !prev);
+
+      // Update viewed profile's followers list
       setProfile((prev) =>
         prev
           ? {
@@ -87,6 +92,15 @@ const UserProfileScreen: React.FC = () => {
             }
           : null
       );
+
+      // Update current logged-in user's "following" list in auth context
+      if (currentUser) {
+        const isCurrentlyFollowing = currentUser.following?.includes(profile._id) ?? false;
+        const nextFollowing = isCurrentlyFollowing
+          ? (currentUser.following || []).filter((id) => id !== profile._id)
+          : [...(currentUser.following || []), profile._id];
+        updateUser({ ...currentUser, following: nextFollowing });
+      }
     } catch (e) {
       console.error('Follow error:', e);
     }
@@ -146,13 +160,10 @@ const UserProfileScreen: React.FC = () => {
         ListHeaderComponent={
           <View style={styles.profileSection}>
             <View style={styles.avatarContainer}>
-              {displayAvatar ? (
-                <Image source={{ uri: displayAvatar }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                  <Text style={styles.avatarLetter}>{displayName.charAt(0).toUpperCase()}</Text>
-                </View>
-              )}
+              <Image
+                source={{ uri: displayAvatar || DEFAULT_AVATAR_URI }}
+                style={styles.avatar}
+              />
             </View>
             <Text style={styles.username}>{displayName}</Text>
             {displayBio ? <Text style={styles.bio}>{displayBio}</Text> : null}

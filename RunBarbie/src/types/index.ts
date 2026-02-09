@@ -56,6 +56,8 @@ export interface CreatePostData {
   distance?: number;
   duration?: number;
   location?: PostLocation;
+  /** User IDs to tag in the post; they receive a notification and push */
+  taggedUserIds?: string[];
 }
 
 export interface Reel {
@@ -84,6 +86,8 @@ export interface Message {
   text: string;
   createdAt: string;
   read: boolean;
+  storyId?: string;
+  storyMediaUri?: string;
 }
 
 export interface Conversation {

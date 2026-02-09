@@ -68,6 +68,8 @@ const userSchema = new mongoose.Schema({
   verificationCodeExpires: { type: Date, default: null },
   resetPasswordCode: { type: String, default: null },
   resetPasswordExpires: { type: Date, default: null },
+  /** Expo push token for sending push notifications (e.g. "ExponentPushToken[xxx]") */
+  expoPushToken: { type: String, default: null },
 }, {
   timestamps: true,
 });

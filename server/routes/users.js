@@ -43,6 +43,22 @@ router.patch('/me', authMiddleware, async (req, res) => {
   }
 });
 
+// Register Expo push token for current user (auth)
+router.patch('/me/push-token', authMiddleware, async (req, res) => {
+  try {
+    const { expoPushToken } = req.body;
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    user.expoPushToken = typeof expoPushToken === 'string' && expoPushToken.trim() ? expoPushToken.trim() : null;
+    await user.save();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get current user's saved (bookmarked) posts – full post objects
 router.get('/me/saved-posts', authMiddleware, async (req, res) => {
   try {
@@ -328,6 +344,11 @@ router.post('/:id/follow', authMiddleware, async (req, res) => {
         fromUserId: currentUserId,
         type: 'follow',
       }).catch(() => {});
+
+      // Push: "X started following you" (IG-style)
+      const { sendPushToUser } = require('../utils/push');
+      const followerUsername = req.user.username || 'Someone';
+      sendPushToUser(targetUserId, 'New follower', `${followerUsername} started following you`, { userId: currentUserId.toString(), type: 'follow' }).catch(() => {});
     }
 
     await currentUser.save();

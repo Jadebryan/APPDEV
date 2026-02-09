@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -42,6 +42,10 @@ const ChatDetailScreen: React.FC = () => {
       const list = await chatService.getMessages(conversationId);
       setMessages(list);
       await chatService.markConversationRead(conversationId);
+      // Auto-scroll to newest message after loading
+      setTimeout(() => {
+        listRef.current?.scrollToEnd({ animated: false });
+      }, 100);
     } catch (e) {
       console.error('Load messages error', e);
     } finally {
@@ -52,6 +56,15 @@ const ChatDetailScreen: React.FC = () => {
   useEffect(() => {
     loadMessages();
   }, [loadMessages]);
+
+  // Auto-scroll to end when messages change (e.g., new message received)
+  useEffect(() => {
+    if (messages.length > 0 && !loading) {
+      setTimeout(() => {
+        listRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [messages.length, loading]);
 
   const sendMessage = async () => {
     const text = inputText.trim();
@@ -71,78 +84,142 @@ const ChatDetailScreen: React.FC = () => {
     }
   };
 
-  const renderMessage = ({ item }: { item: Message }) => {
-    const isMe = item.senderId === currentUser?._id;
+  // Format date for separator (e.g., "Today", "Yesterday", "Monday, Jan 15")
+  const formatDateSeparator = (date: Date): string => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const messageDate = new Date(date);
+    messageDate.setHours(0, 0, 0, 0);
+    const diffTime = today.getTime() - messageDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) {
+      return messageDate.toLocaleDateString('en-US', { weekday: 'long' });
+    }
+    return messageDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: messageDate.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+  };
+
+  // Group messages with date separators
+  const messagesWithSeparators = useMemo(() => {
+    const result: Array<Message | { type: 'date'; date: string; key: string }> = [];
+    let lastDate: string | null = null;
+
+    messages.forEach((msg) => {
+      const msgDate = new Date(msg.createdAt);
+      const dateKey = msgDate.toDateString();
+      
+      if (dateKey !== lastDate) {
+        result.push({ type: 'date', date: formatDateSeparator(msgDate), key: `date-${dateKey}` });
+        lastDate = dateKey;
+      }
+      result.push(msg);
+    });
+
+    return result;
+  }, [messages]);
+
+  const renderItem = ({ item }: { item: Message | { type: 'date'; date: string; key: string } }) => {
+    if ('type' in item && item.type === 'date') {
+      return (
+        <View style={styles.dateSeparator}>
+          <View style={styles.dateSeparatorLine} />
+          <Text style={styles.dateSeparatorText}>{item.date}</Text>
+          <View style={styles.dateSeparatorLine} />
+        </View>
+      );
+    }
+
+    const msg = item as Message;
+    const isMe = msg.senderId === currentUser?._id;
+    const hasStoryPreview = !!msg.storyMediaUri;
+    const statusLabel = isMe ? (msg.read ? 'Seen' : 'Sent') : '';
+    const storyReplyLabel = isMe ? 'You replied to their story' : 'Replied to your story';
+
     return (
       <View style={[styles.messageRow, isMe ? styles.messageRowMe : styles.messageRowThem]}>
         <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
-          <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{item.text}</Text>
+          {hasStoryPreview && (
+            <View style={styles.storyPreviewInChat}>
+              <Image source={{ uri: msg.storyMediaUri! }} style={styles.storyPreviewImage} />
+              <Text style={styles.storyPreviewLabel} numberOfLines={1}>
+                {storyReplyLabel}
+              </Text>
+            </View>
+          )}
+          <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{msg.text}</Text>
           <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
-            {getTimeAgo(item.createdAt)}
+            {getTimeAgo(msg.createdAt)}
           </Text>
         </View>
+        {isMe && (
+          <Text style={styles.messageStatus}>
+            {statusLabel}
+          </Text>
+        )}
       </View>
     );
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Ionicons name="chevron-back" size={28} color="#000" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.headerUser}
-          activeOpacity={0.8}
-          onPress={() => {
-            const root = navigation.getParent()?.getParent();
-            if (root && 'navigate' in root) {
-              (root as any).navigate('FeedStack', {
-                screen: 'UserProfile',
-                params: {
-                  userId: otherUser._id,
-                  username: otherUser.username,
-                  avatar: otherUser.avatar,
-                  bio: otherUser.bio,
-                },
-              });
-            }
-          }}
-        >
-          {otherUser.avatar ? (
-            <Image source={{ uri: otherUser.avatar }} style={styles.headerAvatar} />
-          ) : (
-            <View style={[styles.headerAvatar, styles.headerAvatarPlaceholder]}>
-              <Text style={styles.headerAvatarLetter}>
-                {(otherUser.username || '?').charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
-          <View style={styles.headerInfo}>
-            <Text style={styles.headerName} numberOfLines={1}>{otherUser.username}</Text>
-            <Text style={styles.headerStatus}>Active now</Text>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.headerIcon}
-          onPress={() => navigation.navigate('VideoCall', { otherUser })}
-        >
-          <Ionicons name="videocam-outline" size={24} color="#000" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.headerIcon}
-          onPress={() => navigation.navigate('ChatInfo', { otherUser })}
-        >
-          <Ionicons name="information-circle-outline" size={24} color="#000" />
-        </TouchableOpacity>
-      </View>
-
       <KeyboardAvoidingView
         style={styles.keyboard}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Ionicons name="chevron-back" size={28} color="#000" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerUser}
+            activeOpacity={0.8}
+            onPress={() => {
+              const root = navigation.getParent()?.getParent();
+              if (root && 'navigate' in root) {
+                (root as any).navigate('FeedStack', {
+                  screen: 'UserProfile',
+                  params: {
+                    userId: otherUser._id,
+                    username: otherUser.username,
+                    avatar: otherUser.avatar,
+                    bio: otherUser.bio,
+                  },
+                });
+              }
+            }}
+          >
+            {otherUser.avatar ? (
+              <Image source={{ uri: otherUser.avatar }} style={styles.headerAvatar} />
+            ) : (
+              <View style={[styles.headerAvatar, styles.headerAvatarPlaceholder]}>
+                <Text style={styles.headerAvatarLetter}>
+                  {(otherUser.username || '?').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <View style={styles.headerInfo}>
+              <Text style={styles.headerName} numberOfLines={1}>{otherUser.username}</Text>
+              <Text style={styles.headerStatus}>Active now</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerIcon}
+            onPress={() => navigation.navigate('VideoCall', { otherUser })}
+          >
+            <Ionicons name="videocam-outline" size={24} color="#000" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerIcon}
+            onPress={() => navigation.navigate('ChatInfo', { otherUser })}
+          >
+            <Ionicons name="information-circle-outline" size={24} color="#000" />
+          </TouchableOpacity>
+        </View>
+
         {loading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="small" color="#333" />
@@ -150,9 +227,9 @@ const ChatDetailScreen: React.FC = () => {
         ) : (
           <FlatList
             ref={listRef}
-            data={messages}
-            keyExtractor={(item) => item._id}
-            renderItem={renderMessage}
+            data={messagesWithSeparators}
+            keyExtractor={(item) => ('type' in item && item.type === 'date') ? item.key : (item as Message)._id}
+            renderItem={renderItem}
             contentContainerStyle={styles.listContent}
             ListEmptyComponent={
               <View style={styles.emptyWrap}>
@@ -160,6 +237,8 @@ const ChatDetailScreen: React.FC = () => {
               </View>
             }
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
           />
         )}
 
@@ -295,6 +374,31 @@ const styles = StyleSheet.create({
   bubbleTimeMe: {
     color: 'rgba(255,255,255,0.8)',
   },
+  messageStatus: {
+    fontSize: 11,
+    marginTop: 2,
+    alignSelf: 'flex-end',
+    color: '#666',
+  },
+  storyPreviewInChat: {
+    marginBottom: 8,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  storyPreviewImage: {
+    width: 140,
+    height: 220,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  storyPreviewLabel: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    fontSize: 12,
+    color: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
   emptyWrap: {
     flex: 1,
     justifyContent: 'center',
@@ -338,6 +442,23 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     opacity: 0.6,
+  },
+  dateSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    paddingHorizontal: 16,
+  },
+  dateSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e0e0e0',
+  },
+  dateSeparatorText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+    marginHorizontal: 12,
   },
 });
 

@@ -26,6 +26,8 @@ app.use('/api/reels', require('./routes/reels'));
 app.use('/api/stories', require('./routes/stories'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/search', require('./routes/search'));
+app.use('/api/chats', require('./routes/chats'));
 
 // MongoDB connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/runbarbie';

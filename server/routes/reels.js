@@ -74,6 +74,24 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
+// Delete reel (auth, owner only)
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const reel = await Reel.findById(req.params.id);
+    if (!reel) return res.status(404).json({ error: 'Reel not found' });
+    const ownerId = (reel.userId && reel.userId.toString && reel.userId.toString()) || reel.userId.toString();
+    if (ownerId !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'You can only delete your own reel' });
+    }
+    const Notification = require('../models/Notification');
+    await Notification.deleteMany({ reelId: reel._id });
+    await Reel.findByIdAndDelete(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Bookmark reel (auth)
 router.post('/:id/bookmark', authMiddleware, async (req, res) => {
   try {
@@ -142,6 +160,19 @@ router.post('/:id/like', authMiddleware, async (req, res) => {
       reel.likes = reel.likes.filter((l) => (l._id?.toString?.() || l.toString()) !== userId);
     } else {
       reel.likes.push(req.user._id);
+      const reelOwnerId = reel.userId && (reel.userId._id ? reel.userId._id.toString() : reel.userId.toString());
+      if (reelOwnerId !== userId) {
+        const Notification = require('../models/Notification');
+        await Notification.create({
+          toUserId: reel.userId,
+          fromUserId: req.user._id,
+          type: 'reel_like',
+          reelId: reel._id,
+        }).catch(() => {});
+        const { sendPushToUser } = require('../utils/push');
+        const likerUsername = req.user.username || 'Someone';
+        sendPushToUser(reel.userId, 'Like', `${likerUsername} liked your reel`, { reelId: reel._id.toString(), type: 'reel_like' }).catch(() => {});
+      }
     }
 
     await reel.save();

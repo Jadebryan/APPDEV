@@ -30,6 +30,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useStories } from '../context/StoriesContext';
+import { useUpload } from '../context/UploadContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_POST_PHOTOS = 10;
@@ -70,6 +71,7 @@ const CreatePostScreen: React.FC = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
   const { stories } = useStories();
+  const { runPostUpload } = useUpload();
 
   const image = images[selectedImageIndex] || null;
 
@@ -685,45 +687,21 @@ const CreatePostScreen: React.FC = () => {
 
   const handleRemoveLocation = () => setLocation(null);
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     if (images.length === 0) {
       showToast('Please select at least one image', 'error');
       return;
     }
 
-    setLoading(true);
-    try {
-      const imageUrls: string[] = [];
-      for (let i = 0; i < images.length; i++) {
-        const base64Image = await convertImageToBase64(images[i]);
-        const url = await uploadService.uploadImage(base64Image);
-        imageUrls.push(url);
-      }
-
-      await postService.createPost({
-        images: imageUrls,
-        caption,
-        activityType,
-        distance: distance ? parseFloat(distance) : undefined,
-        duration: totalDurationMinutes > 0 ? totalDurationMinutes : undefined,
-        location: location ?? undefined,
-      });
-
-      showToast('Post created successfully!', 'success');
-      setImages([]);
-      setSelectedImageIndex(0);
-      setCaption('');
-      setDistance('');
-      setDurationHours('');
-      setDurationMinutes('');
-      setLocation(null);
-      setShowDetails(false);
-      navigation.goBack();
-    } catch (error: any) {
-      showToast(error.message || 'Failed to create post', 'error');
-    } finally {
-      setLoading(false);
-    }
+    runPostUpload({
+      imageUris: images,
+      caption,
+      activityType,
+      distance: distance ? parseFloat(distance) : undefined,
+      duration: totalDurationMinutes > 0 ? totalDurationMinutes : undefined,
+      location: location ?? undefined,
+    });
+    navigation.goBack();
   };
 
   // Calculate pace from distance and duration (duration in minutes)

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { RouteProp } from '@react-navigation/native';
@@ -8,6 +8,7 @@ import { userService, Goal } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
 import { formatDurationMinutes } from '../utils/formatDuration';
+import ConfirmModal from '../components/ConfirmModal';
 
 type GoalsRoute = RouteProp<FeedStackParamList, 'Goals'>;
 
@@ -27,6 +28,7 @@ const GoalsScreen: React.FC = () => {
   };
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [goalToDelete, setGoalToDelete] = useState<Goal | null>(null);
 
   const loadGoals = useCallback(async () => {
     try {
@@ -46,24 +48,20 @@ const GoalsScreen: React.FC = () => {
     }, [loadGoals])
   );
 
-  const handleDelete = (goal: Goal) => {
-    Alert.alert('Delete goal', `Remove "${goal.title}"?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await userService.deleteGoal(goal._id);
-            setGoals((prev) => prev.filter((g) => g._id !== goal._id));
-            showToast('Goal removed', 'success');
-          } catch {
-            showToast('Failed to remove goal', 'info');
-          }
-        },
-      },
-    ]);
-  };
+  const handleDelete = (goal: Goal) => setGoalToDelete(goal);
+
+  const handleConfirmDeleteGoal = useCallback(async () => {
+    const goal = goalToDelete;
+    setGoalToDelete(null);
+    if (!goal) return;
+    try {
+      await userService.deleteGoal(goal._id);
+      setGoals((prev) => prev.filter((g) => g._id !== goal._id));
+      showToast('Goal removed', 'success');
+    } catch {
+      showToast('Failed to remove goal', 'info');
+    }
+  }, [goalToDelete, showToast]);
 
   const renderItem = ({ item }: { item: Goal }) => (
     <View style={styles.card}>
@@ -112,6 +110,17 @@ const GoalsScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <ConfirmModal
+        visible={!!goalToDelete}
+        onClose={() => setGoalToDelete(null)}
+        title="Delete goal"
+        message={goalToDelete ? `Remove "${goalToDelete.title}"? This cannot be undone.` : ''}
+        confirmLabel="Delete"
+        onConfirm={handleConfirmDeleteGoal}
+        destructive
+        icon="flag-outline"
+      />
     </SafeAreaView>
   );
 };

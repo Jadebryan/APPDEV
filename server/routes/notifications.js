@@ -48,6 +48,7 @@ router.get('/', authMiddleware, async (req, res) => {
         type: n.type,
         username: isFromPopulated ? from.username : 'Unknown',
         avatar: isFromPopulated ? (from.avatar || '') : '',
+        userId: isFromPopulated && from._id ? from._id.toString() : undefined,
         text,
         timestamp: n.createdAt ? new Date(n.createdAt).getTime() : 0,
         read: !!n.read,

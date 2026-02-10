@@ -59,6 +59,85 @@ router.patch('/me/push-token', authMiddleware, async (req, res) => {
   }
 });
 
+// Record that current user viewed someone's profile (TikTok-style profile views)
+router.post('/me/profile-view', authMiddleware, async (req, res) => {
+  try {
+    const { profileUserId } = req.body;
+    const viewerId = req.user._id;
+    if (!profileUserId || profileUserId === viewerId.toString()) {
+      return res.json({ ok: true });
+    }
+    const ProfileView = require('../models/ProfileView');
+    const mongoose = require('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(profileUserId)) {
+      return res.status(400).json({ error: 'Invalid profile user id' });
+    }
+    await ProfileView.create({
+      viewerId,
+      profileUserId,
+    }).catch(() => {});
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get list of users who viewed current user's profile (TikTok-style, deduped by latest view)
+router.get('/me/profile-visitors', authMiddleware, async (req, res) => {
+  try {
+    const profileUserId = req.user._id;
+    const ProfileView = require('../models/ProfileView');
+    const views = await ProfileView.aggregate([
+      { $match: { profileUserId } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: '$viewerId',
+          viewedAt: { $first: '$createdAt' },
+        },
+      },
+      { $sort: { viewedAt: -1 } },
+      { $limit: 100 },
+    ]);
+    if (views.length === 0) {
+      return res.json({ users: [], count: 0 });
+    }
+    const viewerIds = views.map((v) => v._id);
+    const users = await User.find({ _id: { $in: viewerIds } })
+      .select('username avatar')
+      .lean();
+    const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+    const list = views.map((v) => {
+      const u = userMap.get(v._id.toString());
+      return {
+        _id: v._id.toString(),
+        username: u ? u.username : 'Unknown',
+        avatar: u ? (u.avatar || '') : '',
+        viewedAt: v.viewedAt,
+      };
+    });
+    res.json({ users: list, count: list.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get profile visitors count only (for profile stat)
+router.get('/me/profile-visitors/count', authMiddleware, async (req, res) => {
+  try {
+    const ProfileView = require('../models/ProfileView');
+    const result = await ProfileView.aggregate([
+      { $match: { profileUserId: req.user._id } },
+      { $group: { _id: '$viewerId' } },
+      { $count: 'count' },
+    ]);
+    const count = result.length > 0 ? result[0].count : 0;
+    res.json({ count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get current user's saved (bookmarked) posts – full post objects
 router.get('/me/saved-posts', authMiddleware, async (req, res) => {
   try {
@@ -253,6 +332,54 @@ router.delete('/me/saved-routes/:postId', authMiddleware, async (req, res) => {
   }
 });
 
+// Get list of users who follow this user (for Followers list screen)
+router.get('/:id/followers', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('followers')
+      .populate('followers', 'username avatar bio');
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const list = (user.followers || []).filter(Boolean).map((u) => ({
+      _id: u._id.toString(),
+      username: u.username,
+      avatar: u.avatar || '',
+      bio: u.bio || '',
+    }));
+
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get list of users this user follows (for Following list screen) (for Following list screen)
+router.get('/:id/following', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('following')
+      .populate('following', 'username avatar bio');
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const list = (user.following || []).filter(Boolean).map((u) => ({
+      _id: u._id.toString(),
+      username: u.username,
+      avatar: u.avatar || '',
+      bio: u.bio || '',
+    }));
+
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get user profile
 router.get('/:id', async (req, res) => {
   try {
@@ -265,6 +392,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    const toId = (x) => (x && x._id ? x._id.toString() : x && x.toString ? x.toString() : '');
     // Transform user to match frontend expectations
     const transformedUser = {
       _id: user._id.toString(),
@@ -272,8 +400,8 @@ router.get('/:id', async (req, res) => {
       username: user.username,
       bio: user.bio,
       avatar: user.avatar,
-      followers: user.followers.map(id => id.toString()),
-      following: user.following.map(id => id.toString()),
+      followers: (user.followers || []).map(toId).filter(Boolean),
+      following: (user.following || []).map(toId).filter(Boolean),
       createdAt: user.createdAt.toISOString(),
     };
 
@@ -344,6 +472,10 @@ router.post('/:id/follow', authMiddleware, async (req, res) => {
         fromUserId: currentUserId,
         type: 'follow',
       }).catch(() => {});
+      try {
+        const io = req.app.get('io');
+        if (io) io.to(`user:${targetUserId}`).emit('notification:new', {});
+      } catch (e) { /* ignore */ }
 
       // Push: "X started following you" (IG-style)
       const { sendPushToUser } = require('../utils/push');
@@ -359,6 +491,7 @@ router.post('/:id/follow', authMiddleware, async (req, res) => {
       .populate('followers', 'username avatar')
       .populate('following', 'username avatar');
 
+    const toId = (x) => (x && x._id ? x._id.toString() : x && x.toString ? x.toString() : '');
     // Transform user to match frontend expectations
     const transformedUser = {
       _id: updatedUser._id.toString(),
@@ -366,8 +499,8 @@ router.post('/:id/follow', authMiddleware, async (req, res) => {
       username: updatedUser.username,
       bio: updatedUser.bio,
       avatar: updatedUser.avatar,
-      followers: updatedUser.followers.map(id => id.toString()),
-      following: updatedUser.following.map(id => id.toString()),
+      followers: (updatedUser.followers || []).map(toId).filter(Boolean),
+      following: (updatedUser.following || []).map(toId).filter(Boolean),
       createdAt: updatedUser.createdAt.toISOString(),
     };
 

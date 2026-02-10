@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { useRealtime } from '../context/RealtimeContext';
 import { useToast } from '../context/ToastContext';
 import { Conversation, User } from '../types';
 import { chatService, searchService } from '../services/api';
@@ -25,6 +26,7 @@ type Nav = NativeStackNavigationProp<ChatsStackParamList, 'ChatsList'>;
 
 const ChatsScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
+  const { subscribe } = useRealtime();
   const { showToast } = useToast();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeUsers, setActiveUsers] = useState<User[]>([]);
@@ -68,6 +70,14 @@ const ChatsScreen: React.FC = () => {
     loadActiveUsers();
     loadSuggestedUsers();
   }, [loadConversations, loadActiveUsers, loadSuggestedUsers]);
+
+  // Real-time: when a new message arrives in any conversation, refresh list
+  useEffect(() => {
+    const unsub = subscribe('conversation:updated', () => {
+      loadConversations();
+    });
+    return unsub;
+  }, [subscribe, loadConversations]);
 
   useFocusEffect(
     useCallback(() => {

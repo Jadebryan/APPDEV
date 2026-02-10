@@ -23,10 +23,12 @@ import SkeletonPost from '../components/SkeletonPost';
 import { ActivityType, Post, Reel } from '../types';
 import { postService, reelService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useRealtime } from '../context/RealtimeContext';
 import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
 import { formatDurationMinutes } from '../utils/formatDuration';
 import UploadProgressBar from '../components/UploadProgressBar';
+import ReelThumbnailPlaceholder from '../components/ReelThumbnailPlaceholder';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 
 type FeedScreenNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
@@ -60,6 +62,7 @@ const FeedScreen: React.FC = () => {
   const [mutedUserIds, setMutedUserIds] = useState<Set<string>>(new Set());
   const [reelThumbnails, setReelThumbnails] = useState<Record<string, string>>({});
   const { user, updateUser } = useAuth();
+  const { subscribe } = useRealtime();
   const { showToast } = useToast();
   const navigation = useNavigation<FeedScreenNav>();
   const savedPostIds = useMemo(() => new Set(user?.savedPosts ?? []), [user?.savedPosts]);
@@ -69,6 +72,26 @@ const FeedScreen: React.FC = () => {
   useEffect(() => {
     loadPosts();
   }, []);
+
+  // Real-time: prepend new posts/reels from other users when they post
+  useEffect(() => {
+    const unsubPost = subscribe('post:new', (payload: unknown) => {
+      const post = payload as Post;
+      if (post?._id && post?.userId !== user?._id) {
+        setPosts((prev) => (prev.some((p) => p._id === post._id) ? prev : [post, ...prev]));
+      }
+    });
+    const unsubReel = subscribe('reel:new', (payload: unknown) => {
+      const reel = payload as Reel;
+      if (reel?._id && reel?.userId !== user?._id) {
+        setReels((prev) => (prev.some((r) => r._id === reel._id) ? prev : [reel, ...prev]));
+      }
+    });
+    return () => {
+      unsubPost();
+      unsubReel();
+    };
+  }, [subscribe, user?._id]);
 
   const loadPosts = async () => {
     try {
@@ -394,19 +417,23 @@ const FeedScreen: React.FC = () => {
                 }
               >
                 <View style={styles.reelCardThumb}>
-                  <ImageBackground
-                    source={
-                      reelThumbnails[reel._id]
-                        ? { uri: reelThumbnails[reel._id] }
-                        : require('../../assets/login-bg.png')
-                    }
-                    style={styles.reelCardPlaceholder}
-                    imageStyle={{ borderRadius: 12 }}
-                  >
-                    <View style={styles.reelCardPlayOverlay}>
-                      <Ionicons name="play" size={32} color="rgba(255,255,255,0.95)" />
-                    </View>
-                  </ImageBackground>
+                  {reelThumbnails[reel._id] ? (
+                    <ImageBackground
+                      source={{ uri: reelThumbnails[reel._id] }}
+                      style={styles.reelCardPlaceholder}
+                      imageStyle={{ borderRadius: 12 }}
+                    >
+                      <View style={styles.reelCardPlayOverlay}>
+                        <Ionicons name="play" size={32} color="rgba(255,255,255,0.95)" />
+                      </View>
+                    </ImageBackground>
+                  ) : (
+                    <ReelThumbnailPlaceholder
+                      width={112}
+                      height={160}
+                      borderRadius={10}
+                    />
+                  )}
                   {reel.user?.avatar ? (
                     <View style={styles.reelCardAvatarWrap}>
                       <Image source={{ uri: reel.user.avatar }} style={styles.reelCardAvatar} />

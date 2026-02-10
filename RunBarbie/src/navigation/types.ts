@@ -27,6 +27,11 @@ export type FeedStackParamList = {
     avatar?: string;
     bio?: string;
   };
+  FollowList: {
+    mode: 'followers' | 'following';
+    userId: string;
+    username?: string;
+  };
   AddGoal: { post: Post };
   Goals: { fromProfile?: boolean };
   SavedPosts: { fromProfile?: boolean };
@@ -53,6 +58,12 @@ export type ProfileStackParamList = {
   ProfileHome: undefined;
   ProfileMenu: undefined;
   EditProfile: undefined;
+  FollowList: {
+    mode: 'followers' | 'following';
+    userId: string;
+    username?: string;
+  };
+  ProfileVisitors: undefined;
   NotificationsSettings: undefined;
   SafetySettings: undefined;
   ConnectedApps: undefined;

@@ -11,7 +11,14 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (jwtErr) {
+      const message = jwtErr.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid token';
+      return res.status(401).json({ error: message });
+    }
+
     const user = await User.findById(decoded.userId).select('-password');
 
     if (!user) {
@@ -21,6 +28,8 @@ const authMiddleware = async (req, res, next) => {
     req.user = user;
     next();
   } catch (error) {
+    // DB or other errors (e.g. connection) – don't expose internals
+    console.error('[Auth]', error.message || error);
     res.status(401).json({ error: 'Invalid token' });
   }
 };

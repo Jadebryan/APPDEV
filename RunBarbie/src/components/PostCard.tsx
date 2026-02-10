@@ -258,12 +258,42 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
   const [editCaptionVisible, setEditCaptionVisible] = useState(false);
   const [editedCaption, setEditedCaption] = useState(post.caption);
   const [editSaving, setEditSaving] = useState(false);
+  const [likersModalVisible, setLikersModalVisible] = useState(false);
+  const [likers, setLikers] = useState<{ _id: string; username: string; avatar?: string }[]>([]);
+  const [likersLoading, setLikersLoading] = useState(false);
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
   const lastTap = useRef(0);
   const isLiked = currentUserId ? post.likes.includes(currentUserId) : false;
   const navigation = useNavigation<PostCardNav>();
   const { showToast } = useToast();
+
+  const openLikersModal = useCallback(async () => {
+    if (post.likes.length === 0) return;
+    setLikersModalVisible(true);
+    setLikersLoading(true);
+    try {
+      const list = await postService.getPostLikers(post._id);
+      setLikers(list ?? []);
+    } catch (e) {
+      setLikers([]);
+    } finally {
+      setLikersLoading(false);
+    }
+  }, [post._id, post.likes.length]);
+
+  const handleLikerPress = useCallback(
+    (user: { _id: string; username: string; avatar?: string }) => {
+      setLikersModalVisible(false);
+      if (user._id === currentUserId) return;
+      navigation.navigate('UserProfile', {
+        userId: user._id,
+        username: user.username,
+        avatar: user.avatar,
+      });
+    },
+    [currentUserId, navigation]
+  );
 
   const user = post.user ?? (post as { userId?: { username?: string; avatar?: string; bio?: string } }).userId;
   const safeUser = user ? { username: user.username ?? 'Unknown', avatar: user.avatar ?? '', bio: user.bio ?? '' } : { username: 'Unknown', avatar: '', bio: '' };
@@ -569,12 +599,59 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
       </View>
 
       {post.likes.length > 0 && (
-        <View style={styles.likesSection}>
+        <TouchableOpacity style={styles.likesSection} onPress={openLikersModal} activeOpacity={0.7}>
           <Text style={styles.likesText}>
             {post.likes.length} {post.likes.length === 1 ? 'like' : 'likes'}
           </Text>
-        </View>
+        </TouchableOpacity>
       )}
+
+      {/* Likers list modal (TikTok-style) */}
+      <Modal
+        visible={likersModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setLikersModalVisible(false)}
+      >
+        <Pressable style={styles.likersBackdrop} onPress={() => setLikersModalVisible(false)}>
+          <Pressable style={styles.likersSheet} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.likersHandle} />
+            <View style={styles.likersHeader}>
+              <Text style={styles.likersTitle}>Liked by</Text>
+              <TouchableOpacity onPress={() => setLikersModalVisible(false)} hitSlop={12}>
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+            {likersLoading ? (
+              <View style={styles.likersLoading}>
+                <Text style={styles.likersLoadingText}>Loading...</Text>
+              </View>
+            ) : likers.length === 0 ? (
+              <View style={styles.likersLoading}>
+                <Text style={styles.likersEmptyText}>No likes yet</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.likersList} contentContainerStyle={styles.likersListContent}>
+                {likers.map((u) => (
+                  <TouchableOpacity
+                    key={u._id}
+                    style={styles.likersRow}
+                    onPress={() => handleLikerPress(u)}
+                    activeOpacity={0.7}
+                  >
+                    <Image
+                      source={{ uri: u.avatar || DEFAULT_AVATAR_URI }}
+                      style={styles.likersAvatar}
+                    />
+                    <Text style={styles.likersUsername}>@{u.username}</Text>
+                    <Ionicons name="chevron-forward" size={18} color="#999" />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <View style={styles.captionSection}>
         <Text style={styles.caption}>
@@ -903,6 +980,78 @@ const styles = StyleSheet.create({
   likesText: {
     fontWeight: '600',
     fontSize: 14,
+    color: '#000',
+  },
+  likersBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  likersSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '70%',
+    minHeight: 200,
+  },
+  likersHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ddd',
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  likersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+  },
+  likersTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
+  },
+  likersLoading: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  likersLoadingText: {
+    fontSize: 14,
+    color: '#999',
+  },
+  likersEmptyText: {
+    fontSize: 14,
+    color: '#999',
+  },
+  likersList: {
+    maxHeight: 320,
+  },
+  likersListContent: {
+    paddingVertical: 8,
+    paddingBottom: 24,
+  },
+  likersRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  likersAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+  },
+  likersUsername: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '500',
     color: '#000',
   },
   captionSection: {

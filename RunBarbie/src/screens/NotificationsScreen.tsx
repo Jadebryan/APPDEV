@@ -102,6 +102,12 @@ const NotificationsScreen: React.FC = () => {
       });
     } else if (item.reelId && item.type === 'reel_like') {
       (navigation.getParent() as any)?.navigate?.('Reels', { screen: 'ReelsHome', params: { initialReelId: item.reelId } });
+    } else if (item.type === 'follow' && item.userId) {
+      navigation.navigate('UserProfile', {
+        userId: item.userId,
+        username: item.username,
+        avatar: item.avatar,
+      });
     } else if (item.type === 'follow') {
       navigation.navigate('FeedHome');
     }

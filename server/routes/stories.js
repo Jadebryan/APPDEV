@@ -60,7 +60,7 @@ router.post('/', authMiddleware, async (req, res) => {
 
     await story.save();
 
-    res.status(201).json({
+    const payload = {
       id: story._id.toString(),
       userId: req.user._id.toString(),
       username: req.user.username,
@@ -69,7 +69,13 @@ router.post('/', authMiddleware, async (req, res) => {
       caption: story.caption,
       activityType: story.activityType,
       createdAt: story.createdAt.toISOString(),
-    });
+    };
+    try {
+      const io = req.app.get('io');
+      if (io) io.to('feed').emit('story:new', payload);
+    } catch (e) { /* ignore */ }
+
+    res.status(201).json(payload);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -165,6 +171,10 @@ router.post('/:id/like', authMiddleware, async (req, res) => {
           fromUserId: req.user._id,
           type: 'story_like',
         }).catch(() => {});
+        try {
+          const io = req.app.get('io');
+          if (io) io.to(`user:${ownerId}`).emit('notification:new', {});
+        } catch (e) { /* ignore */ }
 
         const { sendPushToUser } = require('../utils/push');
         const likerUsername = req.user.username || 'Someone';
@@ -260,6 +270,23 @@ router.post('/:id/reply', authMiddleware, async (req, res) => {
         type: 'story_reply',
         commentText: trimmed.slice(0, 200),
       }).catch(() => {});
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`user:${ownerId}`).emit('notification:new', {});
+          const msgPayload = {
+            _id: message._id.toString(),
+            conversationId: message.conversationId.toString(),
+            senderId: message.senderId.toString(),
+            text: message.text,
+            createdAt: message.createdAt.toISOString(),
+            read: message.read,
+            storyId: story._id.toString(),
+            storyMediaUri: story.mediaUri || undefined,
+          };
+          io.to(`conversation:${conversation._id}`).emit('message:new', msgPayload);
+        }
+      } catch (e) { /* ignore */ }
 
       const { sendPushToUser } = require('../utils/push');
       const senderUsername = req.user.username || 'Someone';

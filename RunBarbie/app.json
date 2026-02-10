@@ -47,7 +47,13 @@
       ],
       "expo-video",
       "expo-web-browser",
-      ["expo-notifications", { "sounds": [] }]
+      [
+        "expo-notifications",
+        {
+          "sounds": []
+        }
+      ],
+      "expo-font"
     ]
   }
 }

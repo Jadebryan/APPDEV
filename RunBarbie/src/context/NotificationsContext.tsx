@@ -1,6 +1,7 @@
 import React, { createContext, useState, useCallback, useContext, useEffect } from 'react';
 import { notificationService } from '../services/api';
 import { useAuth } from './AuthContext';
+import { useRealtime } from './RealtimeContext';
 
 export type NotificationType = 'like' | 'comment' | 'follow' | 'reel_like' | 'mention' | 'tag';
 
@@ -9,6 +10,7 @@ export interface NotificationItem {
   type: NotificationType;
   username: string;
   avatar?: string;
+  userId?: string;
   text: string;
   timeAgo: string;
   timestamp: number;
@@ -29,12 +31,13 @@ function updateTimeAgo(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-function mapApiToItem(api: { id: string; type: NotificationType; username: string; avatar?: string; text: string; timestamp: number; read: boolean; postId?: string; postImage?: string; reelId?: string }): NotificationItem {
+function mapApiToItem(api: { id: string; type: NotificationType; username: string; avatar?: string; userId?: string; text: string; timestamp: number; read: boolean; postId?: string; postImage?: string; reelId?: string }): NotificationItem {
   return {
     id: api.id,
     type: api.type,
     username: api.username,
     avatar: api.avatar,
+    userId: api.userId,
     text: api.text,
     timeAgo: updateTimeAgo(api.timestamp),
     timestamp: api.timestamp,
@@ -59,6 +62,7 @@ const NotificationsContext = createContext<NotificationsContextType | undefined>
 
 export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { subscribe } = useRealtime();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -82,6 +86,14 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
+
+  // Real-time: when server sends notification:new, refresh list
+  useEffect(() => {
+    const unsub = subscribe('notification:new', () => {
+      loadNotifications();
+    });
+    return unsub;
+  }, [subscribe, loadNotifications]);
 
   const refreshNotifications = useCallback(async () => {
     setLoading(true);

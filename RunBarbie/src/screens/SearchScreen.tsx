@@ -29,7 +29,7 @@ const CARD_WIDTH = 160;
 const CARD_MARGIN = 8;
 
 const SearchScreen: React.FC = () => {
-  const { user: currentUser, facebookAccessToken } = useAuth();
+  const { user: currentUser, updateUser, facebookAccessToken } = useAuth();
   const { showToast } = useToast();
   const navigation = useNavigation<any>();
   const { width: screenWidth } = useWindowDimensions();
@@ -142,6 +142,11 @@ const SearchScreen: React.FC = () => {
         else next.add(userId);
         return next;
       });
+      const isCurrentlyFollowing = currentUser.following?.includes(userId) ?? false;
+      const nextFollowing = isCurrentlyFollowing
+        ? (currentUser.following || []).filter((id) => id !== userId)
+        : [...(currentUser.following || []), userId];
+      updateUser({ ...currentUser, following: nextFollowing });
     } catch (e) {
       showToast('Could not update follow.', 'error');
     }

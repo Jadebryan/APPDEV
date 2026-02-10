@@ -1,6 +1,15 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
+// Load Poppins from project assets (available as fontFamily: 'Poppins_400Regular', etc.)
+const poppinsFonts = {
+  Poppins_400Regular: require('./assets/fonts/Poppins_400Regular.ttf'),
+  Poppins_500Medium: require('./assets/fonts/Poppins_500Medium.ttf'),
+  Poppins_600SemiBold: require('./assets/fonts/Poppins_600SemiBold.ttf'),
+  Poppins_700Bold: require('./assets/fonts/Poppins_700Bold.ttf'),
+};
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { RealtimeProvider } from './src/context/RealtimeContext';
 import { StoriesProvider } from './src/context/StoriesContext';
 import { NotificationsProvider } from './src/context/NotificationsContext';
 import { ToastProvider } from './src/context/ToastContext';
@@ -19,19 +28,27 @@ function PushTokenRegistration() {
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts(poppinsFonts);
+
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
+
   return (
     <AuthProvider>
       <PushTokenRegistration />
-      <StoriesProvider>
-        <NotificationsProvider>
-          <ToastProvider>
-            <UploadProvider>
-              <AppNavigator />
-              <StatusBar style="auto" />
-            </UploadProvider>
-          </ToastProvider>
-        </NotificationsProvider>
-      </StoriesProvider>
+      <RealtimeProvider>
+        <StoriesProvider>
+          <NotificationsProvider>
+            <ToastProvider>
+              <UploadProvider>
+                <AppNavigator />
+                <StatusBar style="auto" />
+              </UploadProvider>
+            </ToastProvider>
+          </NotificationsProvider>
+        </StoriesProvider>
+      </RealtimeProvider>
     </AuthProvider>
   );
 }

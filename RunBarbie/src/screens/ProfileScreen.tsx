@@ -21,6 +21,7 @@ import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 import { Post, Reel } from '../types';
 import { userService, reelService } from '../services/api';
 import { ProfileStackParamList } from '../navigation/types';
+import ReelThumbnailPlaceholder from '../components/ReelThumbnailPlaceholder';
 
 type ProfileNav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileHome'>;
 
@@ -45,6 +46,9 @@ const ProfileScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [reelThumbnails, setReelThumbnails] = useState<Record<string, string>>({});
+  const [profileVisitorsCount, setProfileVisitorsCount] = useState(0);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
 
   const openSavedSection = (item: (typeof SAVED_SECTIONS)[0]) => {
     const mainTabs = (navigation.getParent() as any)?.getParent?.();
@@ -58,12 +62,15 @@ const ProfileScreen: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!user) return;
     try {
-      const [postsData, reelsData] = await Promise.all([
+      const [postsData, reelsData, freshProfile] = await Promise.all([
         userService.getUserPosts(user._id),
         reelService.getReels(),
+        userService.getUserProfile(user._id),
       ]);
       setPosts(postsData);
       setReels(reelsData.filter((r) => r.userId === user._id));
+      setFollowersCount(freshProfile?.followers?.length ?? 0);
+      setFollowingCount(freshProfile?.following?.length ?? 0);
     } catch (error) {
       console.error('Error loading profile data:', error);
     } finally {
@@ -75,6 +82,11 @@ const ProfileScreen: React.FC = () => {
   useEffect(() => {
     if (user) loadData();
   }, [user, loadData]);
+
+  useEffect(() => {
+    if (!user) return;
+    userService.getProfileVisitorsCount().then(({ count }) => setProfileVisitorsCount(count)).catch(() => {});
+  }, [user]);
 
   // Generate thumbnails for reels - optimized for faster loading
   useEffect(() => {
@@ -143,6 +155,7 @@ const ProfileScreen: React.FC = () => {
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
+    userService.getProfileVisitorsCount().then(({ count }) => setProfileVisitorsCount(count)).catch(() => {});
   };
 
   const showMenu = () => {
@@ -203,25 +216,26 @@ const ProfileScreen: React.FC = () => {
         </TouchableOpacity>
       );
     }
+    const hasThumb = !!reelThumbnails[item._id];
     return (
       <TouchableOpacity
         style={[styles.thumb, { width: thumbSize, height: thumbSize }]}
         onPress={() => openReel(item)}
         activeOpacity={0.8}
       >
-        <ImageBackground
-          source={
-            reelThumbnails[item._id]
-              ? { uri: reelThumbnails[item._id] }
-              : require('../../assets/login-bg.png')
-          }
-          style={styles.reelThumbImage}
-          imageStyle={{ borderRadius: 0 }}
-        >
-          <View style={styles.reelThumbOverlay}>
-            <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.95)" />
-          </View>
-        </ImageBackground>
+        {hasThumb ? (
+          <ImageBackground
+            source={{ uri: reelThumbnails[item._id] }}
+            style={styles.reelThumbImage}
+            imageStyle={{ borderRadius: 0 }}
+          >
+            <View style={styles.reelThumbOverlay}>
+              <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.95)" />
+            </View>
+          </ImageBackground>
+        ) : (
+          <ReelThumbnailPlaceholder width={thumbSize} height={thumbSize} />
+        )}
       </TouchableOpacity>
     );
   };
@@ -250,14 +264,22 @@ const ProfileScreen: React.FC = () => {
             <Text style={styles.statNumber}>{posts.length}</Text>
             <Text style={styles.statLabel}>Posts</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{user.followers?.length || 0}</Text>
+          <TouchableOpacity
+            style={styles.statItem}
+            onPress={() => navigation.navigate('FollowList', { mode: 'followers', userId: user._id, username: user.username })}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.statNumber}>{followersCount}</Text>
             <Text style={styles.statLabel}>Followers</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{user.following?.length || 0}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.statItem}
+            onPress={() => navigation.navigate('FollowList', { mode: 'following', userId: user._id, username: user.username })}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.statNumber}>{followingCount}</Text>
             <Text style={styles.statLabel}>Following</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {(weekPosts.length > 0 || weekDistance > 0) && (
@@ -298,9 +320,23 @@ const ProfileScreen: React.FC = () => {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>{user.username}</Text>
-        <TouchableOpacity onPress={showMenu} style={styles.menuBtn} activeOpacity={0.7}>
-          <Ionicons name="ellipsis-horizontal" size={20} color="#000" />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ProfileVisitors')}
+            style={styles.headerIconBtn}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="eye-outline" size={22} color="#000" />
+            {profileVisitorsCount > 0 && (
+              <View style={styles.headerIconBadge}>
+                <Text style={styles.headerIconBadgeText}>{profileVisitorsCount > 99 ? '99+' : profileVisitorsCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={showMenu} style={styles.menuBtn} activeOpacity={0.7}>
+            <Ionicons name="ellipsis-horizontal" size={20} color="#000" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading ? (
@@ -361,6 +397,37 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     color: '#000',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  headerIconBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FF69B5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  headerIconBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
   },
   menuBtn: {
     width: 36,

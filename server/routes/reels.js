@@ -26,6 +26,7 @@ router.get('/', async (req, res) => {
         _id: reel._id.toString(),
         userId: userObj._id,
         likes: (reel.likes || []).map((l) => (l && l._id ? l._id.toString() : l.toString())),
+        commentCount: reel.commentCount ?? 0,
       };
     });
 
@@ -66,9 +67,110 @@ router.post('/', authMiddleware, async (req, res) => {
       _id: reel._id.toString(),
       userId: userObj._id,
       likes: [],
+      commentCount: 0,
     };
 
+    try {
+      const io = req.app.get('io');
+      if (io) io.to('feed').emit('reel:new', transformed);
+    } catch (e) { /* ignore */ }
+
     res.status(201).json(transformed);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get comments for a reel (auth)
+router.get('/:id/comments', authMiddleware, async (req, res) => {
+  try {
+    const reel = await Reel.findById(req.params.id);
+    if (!reel) return res.status(404).json({ error: 'Reel not found' });
+
+    const ReelComment = require('../models/ReelComment');
+    const comments = await ReelComment.find({ reelId: reel._id })
+      .populate('userId', 'username avatar')
+      .sort({ createdAt: 1 })
+      .limit(200)
+      .lean();
+
+    const list = comments.map((c) => {
+      const u = c.userId;
+      const isPopulated = u && typeof u === 'object' && 'username' in u;
+      return {
+        _id: c._id.toString(),
+        id: c._id.toString(),
+        reelId: c.reelId.toString(),
+        userId: c.userId && (u._id || c.userId) ? (u._id ? u._id.toString() : c.userId.toString()) : '',
+        username: isPopulated ? u.username : 'Unknown',
+        avatar: isPopulated ? (u.avatar || '') : '',
+        text: c.text,
+        parentId: c.parentId ? c.parentId.toString() : undefined,
+        createdAt: c.createdAt.toISOString(),
+        timeAgo: timeAgo(c.createdAt),
+        likeCount: 0,
+        timestamp: new Date(c.createdAt).getTime(),
+      };
+    });
+
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+function timeAgo(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return 'Just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  if (sec < 604800) return `${Math.floor(sec / 86400)}d ago`;
+  if (sec < 2592000) return `${Math.floor(sec / 604800)}w ago`;
+  return d.toLocaleDateString();
+}
+
+// Add comment to reel (auth)
+router.post('/:id/comments', authMiddleware, async (req, res) => {
+  try {
+    const { text, parentId } = req.body;
+    const trimmed = (text || '').trim();
+    if (!trimmed) return res.status(400).json({ error: 'Comment text is required' });
+
+    const reel = await Reel.findById(req.params.id);
+    if (!reel) return res.status(404).json({ error: 'Reel not found' });
+
+    const ReelComment = require('../models/ReelComment');
+    const newComment = new ReelComment({
+      reelId: reel._id,
+      userId: req.user._id,
+      text: trimmed,
+      parentId: parentId || null,
+    });
+    await newComment.save();
+    await newComment.populate('userId', 'username avatar');
+
+    await Reel.findByIdAndUpdate(reel._id, { $inc: { commentCount: 1 } });
+
+    const u = newComment.userId;
+    const isPopulated = u && typeof u === 'object' && 'username' in u;
+    const created = newComment.createdAt instanceof Date ? newComment.createdAt : new Date(newComment.createdAt);
+    const createdObj = {
+      _id: newComment._id.toString(),
+      id: newComment._id.toString(),
+      reelId: newComment.reelId.toString(),
+      userId: u && (u._id || u) ? (u._id ? u._id.toString() : u.toString()) : '',
+      username: isPopulated ? u.username : 'Unknown',
+      avatar: isPopulated ? (u.avatar || '') : '',
+      text: newComment.text,
+      parentId: newComment.parentId ? newComment.parentId.toString() : undefined,
+      createdAt: created.toISOString(),
+      timeAgo: timeAgo(created),
+      likeCount: 0,
+      timestamp: created.getTime(),
+    };
+
+    res.status(201).json(createdObj);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -84,7 +186,9 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: 'You can only delete your own reel' });
     }
     const Notification = require('../models/Notification');
+    const ReelComment = require('../models/ReelComment');
     await Notification.deleteMany({ reelId: reel._id });
+    await ReelComment.deleteMany({ reelId: reel._id });
     await Reel.findByIdAndDelete(req.params.id);
     res.json({ ok: true });
   } catch (error) {
@@ -163,15 +267,28 @@ router.post('/:id/like', authMiddleware, async (req, res) => {
       const reelOwnerId = reel.userId && (reel.userId._id ? reel.userId._id.toString() : reel.userId.toString());
       if (reelOwnerId !== userId) {
         const Notification = require('../models/Notification');
-        await Notification.create({
+        const { hasRecentDuplicateNotification } = require('../utils/notifications');
+        const isDuplicate = await hasRecentDuplicateNotification(Notification, {
           toUserId: reel.userId,
           fromUserId: req.user._id,
           type: 'reel_like',
           reelId: reel._id,
-        }).catch(() => {});
-        const { sendPushToUser } = require('../utils/push');
-        const likerUsername = req.user.username || 'Someone';
-        sendPushToUser(reel.userId, 'Like', `${likerUsername} liked your reel`, { reelId: reel._id.toString(), type: 'reel_like' }).catch(() => {});
+        });
+        if (!isDuplicate) {
+          await Notification.create({
+            toUserId: reel.userId,
+            fromUserId: req.user._id,
+            type: 'reel_like',
+            reelId: reel._id,
+          }).catch(() => {});
+          try {
+            const io = req.app.get('io');
+            if (io) io.to(`user:${reelOwnerId}`).emit('notification:new', {});
+          } catch (e) { /* ignore */ }
+          const { sendPushToUser } = require('../utils/push');
+          const likerUsername = req.user.username || 'Someone';
+          sendPushToUser(reel.userId, 'Like', `${likerUsername} liked your reel`, { reelId: reel._id.toString(), type: 'reel_like' }).catch(() => {});
+        }
       }
     }
 
@@ -189,6 +306,7 @@ router.post('/:id/like', authMiddleware, async (req, res) => {
       _id: reel._id.toString(),
       userId: userObj._id,
       likes: (reel.likes || []).map((l) => (l && l._id ? l._id.toString() : l.toString())),
+      commentCount: reel.commentCount ?? 0,
     };
 
     res.json(transformed);

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { ActivityType } from '../types';
 import { useAuth } from './AuthContext';
+import { useRealtime } from './RealtimeContext';
 import { storyService } from '../services/api';
 
 export interface Story {
@@ -64,6 +65,7 @@ function mapApiToStory(api: {
 
 export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const { subscribe } = useRealtime();
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -82,6 +84,14 @@ export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     loadStories();
   }, [loadStories]);
+
+  // Real-time: when someone posts a new story, refresh list
+  useEffect(() => {
+    const unsub = subscribe('story:new', () => {
+      loadStories();
+    });
+    return unsub;
+  }, [subscribe, loadStories]);
 
   const refreshStories = useCallback(async () => {
     setLoading(true);

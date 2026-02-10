@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,10 @@ const CommentsScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
   const [text, setText] = useState('');
+  const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
+  const [replyingToUsername, setReplyingToUsername] = useState<string | null>(null);
+  const [expandedReplyIds, setExpandedReplyIds] = useState<Set<string>>(new Set());
+  const inputRef = useRef<TextInput>(null);
 
   const loadComments = useCallback(async () => {
     try {
@@ -50,15 +54,89 @@ const CommentsScreen: React.FC = () => {
     if (!trimmed || posting) return;
     try {
       setPosting(true);
-      const newComment = await postService.addComment(postId, trimmed);
-      setComments((prev) => [newComment, ...prev]);
+      const newComment = await postService.addComment(postId, trimmed, replyingToCommentId || undefined);
+      setComments((prev) => [...prev, newComment]);
       setText('');
+      setReplyingToCommentId(null);
+      setReplyingToUsername(null);
     } catch (error) {
       console.error('Error adding comment:', error);
     } finally {
       setPosting(false);
     }
   };
+
+  const handleReplyToComment = useCallback((item: PostComment) => {
+    setReplyingToCommentId(item._id);
+    setReplyingToUsername(item.username);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
+
+  const handleCancelReply = useCallback(() => {
+    setReplyingToCommentId(null);
+    setReplyingToUsername(null);
+  }, []);
+
+  const handleToggleViewReplies = useCallback((parentId: string) => {
+    setExpandedReplyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) next.delete(parentId);
+      else next.add(parentId);
+      return next;
+    });
+  }, []);
+
+  const handleToggleLike = useCallback(async (item: PostComment) => {
+    // Optimistic update
+    setComments((prev) =>
+      prev.map((c) => {
+        if (c._id !== item._id) return c;
+        const liked = !!c.likedByMe;
+        const nextLiked = !liked;
+        const nextCount = (c.likeCount ?? 0) + (nextLiked ? 1 : -1);
+        return { ...c, likedByMe: nextLiked, likeCount: Math.max(0, nextCount) };
+      })
+    );
+    try {
+      const updated = await postService.likeComment(postId, item._id);
+      setComments((prev) => prev.map((c) => (c._id === updated._id ? { ...c, ...updated } : c)));
+    } catch (e) {
+      // Revert by refetching this one comment from server response isn’t available; simple fallback: reload all
+      loadComments();
+    }
+  }, [loadComments, postId]);
+
+  type CommentListItem =
+    | { type: 'comment'; item: PostComment; isReply: boolean; parentUsername?: string }
+    | { type: 'viewReplies'; parentId: string; parentUsername: string; count: number };
+
+  const commentsForList = useMemo<CommentListItem[]>(() => {
+    const byId = new Map(comments.map((c) => [c._id, c]));
+    const topLevel = comments
+      .filter((c) => !c.parentId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return topLevel.flatMap((parent) => {
+      const replies = comments
+        .filter((c) => c.parentId === parent._id)
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const items: CommentListItem[] = [{ type: 'comment', item: parent, isReply: false }];
+      if (replies.length > 0) {
+        if (expandedReplyIds.has(parent._id)) {
+          replies.forEach((r) =>
+            items.push({
+              type: 'comment',
+              item: r,
+              isReply: true,
+              parentUsername: (byId.get(r.parentId || '')?.username) || parent.username,
+            })
+          );
+        } else {
+          items.push({ type: 'viewReplies', parentId: parent._id, parentUsername: parent.username, count: replies.length });
+        }
+      }
+      return items;
+    });
+  }, [comments, expandedReplyIds]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -108,34 +186,80 @@ const CommentsScreen: React.FC = () => {
           </View>
         ) : (
           <FlatList
-            data={comments}
+            data={commentsForList}
             style={styles.flex}
-            keyExtractor={(item) => item._id}
+            keyExtractor={(row) => (row.type === 'comment' ? row.item._id : `view-${row.parentId}`)}
             contentContainerStyle={styles.listContent}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             ListEmptyComponent={
               <Text style={styles.emptyText}>No comments yet. Be the first!</Text>
             }
-            renderItem={({ item }) => (
-              <View style={styles.commentRow}>
-                <View style={styles.commentAvatar}>
-                  {item.avatar ? (
-                    <Image source={{ uri: item.avatar }} style={styles.commentAvatarImg} />
-                  ) : (
-                    <Ionicons name="person" size={18} color="#999" />
-                  )}
+            renderItem={({ item: row }) => {
+              if (row.type === 'viewReplies') {
+                const isExpanded = expandedReplyIds.has(row.parentId);
+                const label = row.count === 1 ? 'View 1 reply' : `View ${row.count} replies`;
+                return (
+                  <TouchableOpacity
+                    style={styles.viewRepliesRow}
+                    activeOpacity={0.7}
+                    onPress={() => handleToggleViewReplies(row.parentId)}
+                  >
+                    <View style={styles.viewRepliesLine} />
+                    <Text style={styles.viewRepliesText}>{isExpanded ? 'Hide replies' : label}</Text>
+                    <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#0095F6" />
+                  </TouchableOpacity>
+                );
+              }
+              const item = row.item;
+              const isReply = row.isReply;
+              const liked = !!item.likedByMe;
+              const count = item.likeCount ?? 0;
+              return (
+                <View style={[styles.commentRow, isReply && styles.commentRowReply]}>
+                  <View style={styles.commentLeft}>
+                    <View style={styles.commentAvatar}>
+                      {item.avatar ? (
+                        <Image source={{ uri: item.avatar }} style={styles.commentAvatarImg} />
+                      ) : (
+                        <Ionicons name="person" size={18} color="#999" />
+                      )}
+                    </View>
+                    <View style={styles.commentBody}>
+                      {isReply && row.parentUsername ? (
+                        <Text style={styles.replyingTo}>Replying to @{row.parentUsername}</Text>
+                      ) : null}
+                      <Text style={styles.commentMetaTop}>
+                        <Text style={styles.commentUsername}>{item.username}</Text>  {getTimeAgo(item.createdAt)}
+                      </Text>
+                      <Text style={styles.commentText}>{item.text}</Text>
+                      <TouchableOpacity style={styles.replyBtn} activeOpacity={0.7} onPress={() => handleReplyToComment(item)}>
+                        <Text style={styles.replyText}>Reply</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={styles.commentRight}>
+                    <TouchableOpacity style={styles.likeBtn} activeOpacity={0.7} onPress={() => handleToggleLike(item)}>
+                      <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? '#FF3B5C' : '#333'} />
+                    </TouchableOpacity>
+                    <Text style={styles.likeCount}>{count}</Text>
+                  </View>
                 </View>
-                <View style={styles.commentBody}>
-                  <Text style={styles.commentText}>
-                    <Text style={styles.commentUsername}>{item.username} </Text>
-                    {item.text}
-                  </Text>
-                  <Text style={styles.commentMeta}>{getTimeAgo(item.createdAt)}</Text>
-                </View>
-              </View>
-            )}
+              );
+            }}
           />
+        )}
+
+        {replyingToCommentId && replyingToUsername && (
+          <View style={styles.replyBar}>
+            <View style={styles.replyBarIndicator} />
+            <View style={styles.replyBarTextWrap}>
+              <Text style={styles.replyBarLabel} numberOfLines={1}>Replying to @{replyingToUsername}</Text>
+            </View>
+            <TouchableOpacity style={styles.replyBarClose} onPress={handleCancelReply} hitSlop={12}>
+              <Ionicons name="close" size={20} color="#666" />
+            </TouchableOpacity>
+          </View>
         )}
 
         <View style={styles.inputRow}>
@@ -150,6 +274,7 @@ const CommentsScreen: React.FC = () => {
             placeholderTextColor="#999"
             multiline
             textAlignVertical="top"
+            ref={inputRef}
           />
           <TouchableOpacity
             style={[styles.sendButton, (!text.trim() || posting) && styles.sendButtonDisabled]}
@@ -231,6 +356,27 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
+  commentRowReply: {
+    paddingLeft: 28,
+  },
+  commentLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  commentRight: {
+    width: 52,
+    alignItems: 'center',
+    paddingTop: 2,
+  },
+  likeBtn: {
+    padding: 4,
+  },
+  likeCount: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 2,
+  },
   loadingWrap: {
     flex: 1,
     justifyContent: 'center',
@@ -264,17 +410,77 @@ const styles = StyleSheet.create({
   commentBody: {
     flex: 1,
   },
+  replyingTo: {
+    fontSize: 11,
+    color: '#0095F6',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  commentMetaTop: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
+  },
   commentText: {
     fontSize: 13,
     color: '#000',
   },
   commentUsername: {
+    fontWeight: '700',
+    color: '#000',
+  },
+  replyBtn: {
+    marginTop: 6,
+  },
+  replyText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+  },
+  viewRepliesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 40,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  viewRepliesLine: {
+    width: 22,
+    height: 1,
+    backgroundColor: '#DDD',
+  },
+  viewRepliesText: {
+    fontSize: 12,
+    color: '#0095F6',
     fontWeight: '600',
   },
-  commentMeta: {
-    fontSize: 11,
-    color: '#999',
-    marginTop: 2,
+  replyBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#EEE',
+    backgroundColor: '#fafafa',
+    gap: 10,
+  },
+  replyBarIndicator: {
+    width: 4,
+    height: 24,
+    borderRadius: 2,
+    backgroundColor: '#0095F6',
+  },
+  replyBarTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  replyBarLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0095F6',
+  },
+  replyBarClose: {
+    padding: 4,
   },
   inputRow: {
     flexDirection: 'row',

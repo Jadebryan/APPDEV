@@ -132,18 +132,36 @@ router.get('/conversations/:conversationId/messages', authMiddleware, async (req
 
     const messages = await Message.find({ conversationId: conversation._id })
       .sort({ createdAt: 1 })
-      .limit(100);
+      .limit(100)
+      .populate('replyToMessageId')
+      .populate({ path: 'replyToMessageId', populate: { path: 'senderId', select: 'username' } });
 
-    const transformed = messages.map((msg) => ({
-      _id: msg._id.toString(),
-      conversationId: msg.conversationId.toString(),
-      senderId: msg.senderId.toString(),
-      text: msg.text,
-      createdAt: msg.createdAt.toISOString(),
-      read: msg.read,
-      storyId: msg.storyId ? msg.storyId.toString() : undefined,
-      storyMediaUri: msg.storyMediaUri || undefined,
-    }));
+    const transformed = messages.map((msg) => {
+      const replyTo = msg.replyToMessageId;
+      const replyToObj =
+        replyTo && replyTo._id
+          ? {
+              _id: replyTo._id.toString(),
+              text: replyTo.text || '',
+              senderId: replyTo.senderId && (replyTo.senderId._id || replyTo.senderId) ? (replyTo.senderId._id ? replyTo.senderId._id.toString() : replyTo.senderId.toString()) : '',
+              senderUsername:
+                replyTo.senderId && typeof replyTo.senderId === 'object' && 'username' in replyTo.senderId
+                  ? replyTo.senderId.username
+                  : undefined,
+            }
+          : undefined;
+      return {
+        _id: msg._id.toString(),
+        conversationId: msg.conversationId.toString(),
+        senderId: msg.senderId.toString(),
+        text: msg.text,
+        createdAt: msg.createdAt.toISOString(),
+        read: msg.read,
+        storyId: msg.storyId ? msg.storyId.toString() : undefined,
+        storyMediaUri: msg.storyMediaUri || undefined,
+        replyTo: replyToObj,
+      };
+    });
 
     res.json(transformed);
   } catch (error) {
@@ -154,7 +172,7 @@ router.get('/conversations/:conversationId/messages', authMiddleware, async (req
 // Send a message
 router.post('/conversations/:conversationId/messages', authMiddleware, async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, replyToMessageId } = req.body;
     const trimmed = (text || '').trim();
     if (!trimmed) {
       return res.status(400).json({ error: 'Message text is required' });
@@ -171,10 +189,20 @@ router.post('/conversations/:conversationId/messages', authMiddleware, async (re
       return res.status(403).json({ error: 'Not authorized to send messages in this conversation' });
     }
 
+    let replyToObjId = null;
+    if (replyToMessageId) {
+      const replyToMsg = await Message.findOne({
+        _id: replyToMessageId,
+        conversationId: conversation._id,
+      });
+      if (replyToMsg) replyToObjId = replyToMsg._id;
+    }
+
     const message = new Message({
       conversationId: conversation._id,
       senderId: req.user._id,
       text: trimmed,
+      replyToMessageId: replyToObjId,
     });
     await message.save();
 
@@ -210,7 +238,24 @@ router.post('/conversations/:conversationId/messages', authMiddleware, async (re
       });
     }
 
-    res.status(201).json({
+    // Real-time: broadcast new message to conversation room (recipient sees it immediately)
+    let replyToPayload = undefined;
+    if (message.replyToMessageId) {
+      const replyToMsg = await Message.findById(message.replyToMessageId)
+        .populate('senderId', 'username')
+        .lean();
+      if (replyToMsg) {
+        const sid = replyToMsg.senderId;
+        const senderIdStr = sid && (sid._id ? sid._id.toString() : sid.toString());
+        replyToPayload = {
+          _id: replyToMsg._id.toString(),
+          text: replyToMsg.text || '',
+          senderId: senderIdStr || '',
+          senderUsername: sid && typeof sid === 'object' && sid.username ? sid.username : undefined,
+        };
+      }
+    }
+    const messagePayload = {
       _id: message._id.toString(),
       conversationId: message.conversationId.toString(),
       senderId: message.senderId.toString(),
@@ -219,7 +264,20 @@ router.post('/conversations/:conversationId/messages', authMiddleware, async (re
       read: message.read,
       storyId: message.storyId ? message.storyId.toString() : undefined,
       storyMediaUri: message.storyMediaUri || undefined,
-    });
+      replyTo: replyToPayload,
+    };
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`conversation:${req.params.conversationId}`).emit('message:new', messagePayload);
+        if (otherUserId) {
+          io.to(`user:${otherUserId}`).emit('notification:new', {});
+          io.to(`user:${otherUserId}`).emit('conversation:updated', { conversationId: req.params.conversationId });
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    res.status(201).json(messagePayload);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

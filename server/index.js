@@ -1,9 +1,11 @@
+const http = require('http');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
+const httpServer = http.createServer(app);
 
 // Middleware – allow large bodies for base64 image/video uploads (Cloudinary accepts up to 10MB image; base64 ~1.37x)
 app.use(cors());
@@ -29,20 +31,22 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/chats', require('./routes/chats'));
 
-// MongoDB connection
+// MongoDB connection – must complete before accepting requests (avoids "buffering timed out" and auth failures)
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/runbarbie';
-
-mongoose.connect(MONGODB_URI)
-.then(() => {
-  console.log('✅ Connected to MongoDB');
-})
-.catch((error) => {
-  console.error('❌ MongoDB connection error:', error);
-});
-
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0'; // 0.0.0.0 = accept connections from network (e.g. phone)
 
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
-});
+mongoose.connect(MONGODB_URI)
+  .then(() => {
+    console.log('✅ Connected to MongoDB');
+    const { init: initSocket } = require('./socket');
+    const io = initSocket(httpServer);
+    app.set('io', io);
+    httpServer.listen(PORT, HOST, () => {
+      console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('❌ MongoDB connection error:', error);
+    process.exit(1);
+  });

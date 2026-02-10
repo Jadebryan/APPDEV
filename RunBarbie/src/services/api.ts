@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
-import { AuthResponse, RegisterVerificationResponse, Post, User, CreatePostData, CreateReelData, Reel, Conversation, Message } from '../types';
+import { AuthResponse, RegisterVerificationResponse, Post, User, CreatePostData, CreateReelData, Reel, ReelCommentApi, Conversation, Message } from '../types';
 import { storage } from '../utils/storage';
 
 // API URL: set EXPO_PUBLIC_API_URL in RunBarbie/.env to override (e.g. http://192.168.1.100:3000/api for physical device).
@@ -189,6 +189,9 @@ export interface PostComment {
   avatar?: string;
   text: string;
   createdAt: string;
+  parentId?: string;
+  likeCount?: number;
+  likedByMe?: boolean;
 }
 
 const realPostService = {
@@ -217,8 +220,18 @@ const realPostService = {
     return response.data;
   },
 
-  addComment: async (postId: string, text: string): Promise<PostComment> => {
-    const response = await api.post(`/posts/${postId}/comments`, { text });
+  getPostLikers: async (postId: string): Promise<{ _id: string; username: string; avatar?: string }[]> => {
+    const response = await api.get(`/posts/${postId}/likers`);
+    return response.data;
+  },
+
+  addComment: async (postId: string, text: string, parentId?: string): Promise<PostComment> => {
+    const response = await api.post(`/posts/${postId}/comments`, { text, parentId });
+    return response.data;
+  },
+
+  likeComment: async (postId: string, commentId: string): Promise<PostComment> => {
+    const response = await api.post(`/posts/${postId}/comments/${commentId}/like`);
     return response.data;
   },
 
@@ -267,6 +280,16 @@ const realUserService = {
     return response.data;
   },
 
+  getFollowers: async (userId: string): Promise<User[]> => {
+    const response = await api.get(`/users/${userId}/followers`);
+    return response.data;
+  },
+
+  getFollowing: async (userId: string): Promise<User[]> => {
+    const response = await api.get(`/users/${userId}/following`);
+    return response.data;
+  },
+
   getUserPosts: async (userId: string): Promise<Post[]> => {
     const response = await api.get(`/users/${userId}/posts`);
     return response.data;
@@ -279,6 +302,21 @@ const realUserService = {
 
   updateProfile: async (_updates: { username?: string; bio?: string; avatar?: string }): Promise<User> => {
     const response = await api.patch('/users/me', _updates);
+    return response.data;
+  },
+
+  recordProfileView: async (profileUserId: string): Promise<{ ok: boolean }> => {
+    const response = await api.post('/users/me/profile-view', { profileUserId });
+    return response.data;
+  },
+
+  getProfileVisitors: async (): Promise<{ users: { _id: string; username: string; avatar?: string; viewedAt: string }[]; count: number }> => {
+    const response = await api.get('/users/me/profile-visitors');
+    return response.data;
+  },
+
+  getProfileVisitorsCount: async (): Promise<{ count: number }> => {
+    const response = await api.get('/users/me/profile-visitors/count');
     return response.data;
   },
 
@@ -431,6 +469,14 @@ const realReelService = {
     const res = await api.delete<{ ok: boolean }>(`/reels/${reelId}`);
     return res.data;
   },
+  getReelComments: async (reelId: string): Promise<ReelCommentApi[]> => {
+    const res = await api.get<ReelCommentApi[]>(`/reels/${reelId}/comments`);
+    return res.data;
+  },
+  addReelComment: async (reelId: string, text: string, parentId?: string): Promise<ReelCommentApi> => {
+    const res = await api.post<ReelCommentApi>(`/reels/${reelId}/comments`, { text, parentId });
+    return res.data;
+  },
 };
 
 // Upload to Cloudinary via server (photos + videos)
@@ -506,8 +552,8 @@ const realChatService = {
     const res = await api.get<Message[]>(`/chats/conversations/${conversationId}/messages`);
     return res.data;
   },
-  sendMessage: async (conversationId: string, text: string): Promise<Message> => {
-    const res = await api.post<Message>(`/chats/conversations/${conversationId}/messages`, { text });
+  sendMessage: async (conversationId: string, text: string, replyToMessageId?: string): Promise<Message> => {
+    const res = await api.post<Message>(`/chats/conversations/${conversationId}/messages`, { text, replyToMessageId });
     return res.data;
   },
   markConversationRead: async (conversationId: string): Promise<void> => {
@@ -584,6 +630,7 @@ export interface NotificationApi {
   type: 'like' | 'comment' | 'follow' | 'reel_like' | 'mention' | 'tag' | 'story_like' | 'story_reply';
   username: string;
   avatar?: string;
+  userId?: string;
   text: string;
   timestamp: number;
   read: boolean;

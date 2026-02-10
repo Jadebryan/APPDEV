@@ -29,6 +29,7 @@ import { Reel } from '../types';
 import { ActivityType } from '../types';
 import { reelService, userService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useRealtime } from '../context/RealtimeContext';
 import { useToast } from '../context/ToastContext';
 import ConfirmModal from '../components/ConfirmModal';
 
@@ -43,6 +44,7 @@ function formatDuration(seconds: number): string {
 
 interface ReelComment {
   id: string;
+  _id?: string;
   username: string;
   text: string;
   timeAgo: string;
@@ -51,12 +53,6 @@ interface ReelComment {
   parentUsername?: string;
   timestamp?: number;
 }
-
-const REEL_COMMENTS_MOCK: ReelComment[] = [
-  { id: '1', username: 'trail_runner', text: 'Looks like such a fun route! 🌲', timeAgo: '15h', likeCount: 181, timestamp: Date.now() - 15 * 3600000 },
-  { id: '2', username: 'marathon_mike', text: 'Perfect tempo pace 🔥', timeAgo: '2d', likeCount: 80, timestamp: Date.now() - 2 * 86400000 },
-  { id: '3', username: 'bike_lover', text: 'Those shoes are sick 👟', timeAgo: '1d', likeCount: 42, timestamp: Date.now() - 86400000 },
-];
 
 const EMOJI_QUICK = ['❤️', '👏', '🔥', '🙌', '😢', '😍', '😮', '😂'];
 
@@ -67,6 +63,22 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
   walk: 'Walk',
   other: 'Activity',
 };
+
+/** Safe call to avoid "shared object already released" when player is unmounted */
+function safePlayerPause(player: { pause: () => void; currentTime: number }) {
+  try {
+    player.pause();
+  } catch (_e) {
+    // Player may already be released when unmounting
+  }
+}
+function safePlayerPlay(player: { play: () => void }) {
+  try {
+    player.play();
+  } catch (_e) {
+    // Player may already be released when unmounting
+  }
+}
 
 /** Single reel video using expo-video; only active reel plays (Instagram-style). Used when parent does not need the player (e.g. fullscreen modal). */
 const ReelVideo: React.FC<{
@@ -79,33 +91,22 @@ const ReelVideo: React.FC<{
   });
   useEffect(() => {
     if (isActive) {
-      player.play();
+      safePlayerPlay(player);
     } else {
-      // Immediately stop and reset when inactive
-      player.pause();
+      safePlayerPause(player);
       try {
         player.currentTime = 0;
-      } catch (e) {
-        // Ignore errors
+      } catch (_e) {
+        // Ignore
       }
     }
   }, [isActive, player]);
-  
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (!isActive) {
-        player.pause();
-        try {
-          player.currentTime = 0;
-        } catch (e) {
-          // Ignore errors
-        }
-      }
-    };
-  }, [isActive, player]);
-  useEffect(() => {
-    player.muted = muted;
+    try {
+      player.muted = muted;
+    } catch (_e) {
+      // Ignore if player released
+    }
   }, [muted, player]);
   return (
     <VideoView
@@ -138,6 +139,7 @@ type ReelCellProps = {
   onFollow: (userId: string) => void;
   onUsernamePress: (item: Reel) => void;
   isFollowing: boolean;
+  showFollowButton: boolean;
 };
 
 const ReelCell = memo(function ReelCell({
@@ -159,6 +161,7 @@ const ReelCell = memo(function ReelCell({
   onFollow,
   onUsernamePress,
   isFollowing,
+  showFollowButton,
 }: ReelCellProps) {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const [isLoading, setIsLoading] = useState(true);
@@ -314,44 +317,27 @@ const ReelCell = memo(function ReelCell({
         setIsLoading(false);
         setIsBuffering(false);
       } else {
-        // Only show loading if video is not ready
         setIsLoading(true);
         setIsBuffering(false);
       }
-      // Ensure we play the video
-      player.play();
+      safePlayerPlay(player);
     } else {
-      // When reel becomes inactive, immediately stop the video and reset
-      // This prevents audio from continuing when scrolling
-      player.pause();
-      // Reset to beginning immediately to stop any audio
+      safePlayerPause(player);
       try {
         player.currentTime = 0;
-      } catch (e) {
-        // Ignore errors if currentTime can't be set
+      } catch (_e) {
+        // Ignore
       }
-      // Hide loading indicator when reel becomes inactive
       setIsLoading(false);
       setIsBuffering(false);
     }
   }, [isActive, player]);
-  
-  // Additional cleanup: ensure video stops when component unmounts or becomes inactive
   useEffect(() => {
-    return () => {
-      // Cleanup: stop video when component unmounts
-      if (!isActive) {
-        player.pause();
-        try {
-          player.currentTime = 0;
-        } catch (e) {
-          // Ignore errors
-        }
-      }
-    };
-  }, [isActive, player]);
-  useEffect(() => {
-    player.muted = muted;
+    try {
+      player.muted = muted;
+    } catch (_e) {
+      // Ignore if player released
+    }
   }, [muted, player]);
 
   // Sync progress bar to real video currentTime/duration
@@ -459,9 +445,11 @@ const ReelCell = memo(function ReelCell({
           <TouchableOpacity activeOpacity={0.8} onPress={() => onUsernamePress(item)} style={styles.usernameTouch}>
             <Text style={styles.username}>@{item.user?.username ?? 'user'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.followBtn} activeOpacity={0.8} onPress={() => onFollow(item.userId)}>
-            <Text style={styles.followBtnText}>{isFollowing ? 'Following' : 'Follow'}</Text>
-          </TouchableOpacity>
+          {showFollowButton ? (
+            <TouchableOpacity style={styles.followBtn} activeOpacity={0.8} onPress={() => onFollow(item.userId)}>
+              <Text style={styles.followBtnText}>{isFollowing ? 'Following' : 'Follow'}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
         {item.caption ? (
           <Text style={styles.caption} numberOfLines={2}>{item.caption}</Text>
@@ -503,12 +491,14 @@ const ReelsScreen: React.FC = () => {
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
   const [commentsSheetVisible, setCommentsSheetVisible] = useState(false);
   const [selectedReelForComments, setSelectedReelForComments] = useState<Reel | null>(null);
-  const [sheetComments, setSheetComments] = useState<ReelComment[]>(REEL_COMMENTS_MOCK);
+  const [sheetComments, setSheetComments] = useState<ReelComment[]>([]);
+  const [sheetCommentsLoading, setSheetCommentsLoading] = useState(false);
   const [sheetCommentText, setSheetCommentText] = useState('');
   const [sheetCommentLikedIds, setSheetCommentLikedIds] = useState<Set<string>>(new Set());
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
   const [replyingToUsername, setReplyingToUsername] = useState<string | null>(null);
   const [expandedReplyIds, setExpandedReplyIds] = useState<Set<string>>(new Set());
+  const [sheetCommentSending, setSheetCommentSending] = useState(false);
   const sheetInputRef = useRef<TextInput>(null);
   const [moreSheetVisible, setMoreSheetVisible] = useState(false);
   const [selectedReelForMore, setSelectedReelForMore] = useState<Reel | null>(null);
@@ -520,7 +510,8 @@ const ReelsScreen: React.FC = () => {
   const [fullscreenReel, setFullscreenReel] = useState<Reel | null>(null);
   const [deleteConfirmReelId, setDeleteConfirmReelId] = useState<string | null>(null);
   const [preloadedReels, setPreloadedReels] = useState<Set<string>>(new Set());
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
+  const { subscribe } = useRealtime();
   const { showToast } = useToast();
   // Use measured reel area height so video fills exactly (no black gap from miscalculation)
   const [reelAreaHeight, setReelAreaHeight] = useState(SCREEN_HEIGHT - TAB_BAR_HEIGHT - insets.top);
@@ -536,6 +527,23 @@ const ReelsScreen: React.FC = () => {
   useEffect(() => {
     loadReels();
   }, []);
+
+  // Real-time: prepend new reels when someone posts
+  useEffect(() => {
+    const unsub = subscribe('reel:new', (payload: unknown) => {
+      const reel = payload as Reel;
+      if (reel?._id && reel?.userId !== user?._id) {
+        setReels((prev) => {
+          if (prev.some((r) => r._id === reel._id)) return prev;
+          if (!heartScales.current[reel._id]) {
+            heartScales.current[reel._id] = new Animated.Value(0);
+          }
+          return [reel, ...prev];
+        });
+      }
+    });
+    return unsub;
+  }, [subscribe, user?._id]);
 
   const isFirstFocus = useRef(true);
   useFocusEffect(
@@ -730,42 +738,92 @@ const ReelsScreen: React.FC = () => {
     [triggerDoubleTapLike]
   );
 
-  const handleOpenComments = useCallback((item: Reel) => {
-    setSelectedReelForComments(item);
-    setSheetComments(REEL_COMMENTS_MOCK);
-    setSheetCommentText('');
-    setSheetCommentLikedIds(new Set());
-    setReplyingToCommentId(null);
-    setReplyingToUsername(null);
-    setExpandedReplyIds(new Set());
-    setCommentsSheetVisible(true);
+  const loadReelComments = useCallback(async (reelId: string) => {
+    setSheetCommentsLoading(true);
+    try {
+      const list = await reelService.getReelComments(reelId);
+      const withParentUsername: ReelComment[] = list.map((c) => {
+        const parent = list.find((p) => p._id === c.parentId);
+        return {
+          id: c._id,
+          _id: c._id,
+          username: c.username,
+          text: c.text,
+          timeAgo: c.timeAgo,
+          likeCount: c.likeCount ?? 0,
+          parentId: c.parentId,
+          parentUsername: parent?.username,
+          timestamp: c.timestamp,
+        };
+      });
+      setSheetComments(withParentUsername);
+    } catch (e) {
+      console.error('Load reel comments error', e);
+      setSheetComments([]);
+    } finally {
+      setSheetCommentsLoading(false);
+    }
   }, []);
+
+  const handleOpenComments = useCallback(
+    (item: Reel) => {
+      setSelectedReelForComments(item);
+      setSheetComments([]);
+      setSheetCommentText('');
+      setSheetCommentLikedIds(new Set());
+      setReplyingToCommentId(null);
+      setReplyingToUsername(null);
+      setExpandedReplyIds(new Set());
+      setCommentsSheetVisible(true);
+      loadReelComments(item._id);
+    },
+    [loadReelComments]
+  );
 
   const handleCloseCommentsSheet = useCallback(() => {
     setCommentsSheetVisible(false);
     setSelectedReelForComments(null);
   }, []);
 
-  const handleAddSheetComment = useCallback(() => {
+  const handleAddSheetComment = useCallback(async () => {
     const trimmed = sheetCommentText.trim();
-    if (!trimmed || !user) return;
-    const now = Date.now();
-    const newComment: ReelComment = {
-      id: `${now}`,
-      username: user.username,
-      text: trimmed,
-      timeAgo: 'Now',
-      likeCount: 0,
-      timestamp: now,
-      ...(replyingToCommentId && replyingToUsername
-        ? { parentId: replyingToCommentId, parentUsername: replyingToUsername }
-        : {}),
-    };
-    setSheetComments(prev => [...prev, newComment]);
-    setSheetCommentText('');
-    setReplyingToCommentId(null);
-    setReplyingToUsername(null);
-  }, [sheetCommentText, user, replyingToCommentId, replyingToUsername]);
+    if (!trimmed || !user || !selectedReelForComments || sheetCommentSending) return;
+    setSheetCommentSending(true);
+    try {
+      const created = await reelService.addReelComment(
+        selectedReelForComments._id,
+        trimmed,
+        replyingToCommentId || undefined
+      );
+      const newComment: ReelComment = {
+        id: created._id,
+        _id: created._id,
+        username: created.username,
+        text: created.text,
+        timeAgo: created.timeAgo,
+        likeCount: created.likeCount ?? 0,
+        parentId: created.parentId,
+        parentUsername: replyingToUsername ?? undefined,
+        timestamp: created.timestamp,
+      };
+      setSheetComments((prev) => [...prev, newComment]);
+      setSheetCommentText('');
+      setReplyingToCommentId(null);
+      setReplyingToUsername(null);
+      setReels((prev) =>
+        prev.map((r) =>
+          r._id === selectedReelForComments._id
+            ? { ...r, commentCount: (r.commentCount ?? 0) + 1 }
+            : r
+        )
+      );
+    } catch (e) {
+      console.error('Add reel comment error', e);
+      showToast('Failed to post comment', 'error');
+    } finally {
+      setSheetCommentSending(false);
+    }
+  }, [sheetCommentText, user, selectedReelForComments, replyingToCommentId, replyingToUsername, sheetCommentSending, showToast]);
 
   const handleReplyToComment = useCallback((item: ReelComment) => {
     setReplyingToCommentId(item.id);
@@ -957,17 +1015,30 @@ const ReelsScreen: React.FC = () => {
         else next.add(userId);
         return next;
       });
+      const isCurrentlyFollowing = user.following?.includes(userId) ?? false;
+      const nextFollowing = isCurrentlyFollowing
+        ? (user.following || []).filter((id: string) => id !== userId)
+        : [...(user.following || []), userId];
+      updateUser({ ...user, following: nextFollowing });
     } catch (e) {
       console.error('Follow error:', e);
     }
-  }, [user]);
+  }, [user, updateUser]);
 
   const handleUsernamePress = useCallback(
     (item: Reel) => {
       if (item.userId === user?._id) {
         (navigation as any).navigate('Profile');
       } else {
-        Alert.alert('Profile', `@${item.user?.username ?? 'user'}'s profile – coming soon`);
+        (navigation.getParent() as any)?.navigate?.('FeedStack', {
+          screen: 'UserProfile',
+          params: {
+            userId: item.userId,
+            username: (item.user as { username?: string })?.username,
+            avatar: (item.user as { avatar?: string })?.avatar,
+            bio: (item.user as { bio?: string })?.bio,
+          },
+        });
       }
     },
     [navigation, user?._id]
@@ -1004,6 +1075,7 @@ const ReelsScreen: React.FC = () => {
           muted={muted}
           isLiked={!!(user && item.likes.includes(user._id))}
           isFollowing={followingIds.has(item.userId)}
+          showFollowButton={!(user && item.userId === user._id)}
           overlayBottom={overlayBottom}
           rightActionsBottom={rightActionsBottom}
           screenWidth={SCREEN_WIDTH}
@@ -1177,6 +1249,12 @@ const ReelsScreen: React.FC = () => {
             </TouchableOpacity>
             <Text style={styles.commentsSheetTitle}>Comments</Text>
 
+            {sheetCommentsLoading ? (
+              <View style={styles.sheetCommentsLoading}>
+                <ActivityIndicator size="small" color="#FF69B5" />
+                <Text style={styles.sheetCommentsLoadingText}>Loading comments...</Text>
+              </View>
+            ) : (
             <FlatList
               data={sheetCommentsForList}
               keyExtractor={item => item.type === 'comment' ? item.item.id : `view-${item.parentId}`}
@@ -1233,6 +1311,7 @@ const ReelsScreen: React.FC = () => {
                 );
               }}
             />
+            )}
 
             <View style={styles.sheetEmojiRow}>
               {EMOJI_QUICK.map((emoji, i) => (
@@ -1272,8 +1351,17 @@ const ReelsScreen: React.FC = () => {
               <TouchableOpacity style={styles.sheetEmojiInputBtn} activeOpacity={0.7} onPress={() => handleEmojiQuickPress('😊')}>
                 <Ionicons name="happy-outline" size={24} color="#666" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.sheetSendBtn} activeOpacity={0.7} onPress={handleAddSheetComment}>
-                <Ionicons name="send" size={22} color={sheetCommentText.trim() ? '#0095F6' : '#ccc'} />
+              <TouchableOpacity
+                style={styles.sheetSendBtn}
+                activeOpacity={0.7}
+                onPress={handleAddSheetComment}
+                disabled={!sheetCommentText.trim() || sheetCommentSending}
+              >
+                {sheetCommentSending ? (
+                  <ActivityIndicator size="small" color="#0095F6" />
+                ) : (
+                  <Ionicons name="send" size={22} color={sheetCommentText.trim() ? '#0095F6' : '#ccc'} />
+                )}
               </TouchableOpacity>
             </View>
             </View>
@@ -1684,6 +1772,17 @@ const styles = StyleSheet.create({
     color: '#000',
     textAlign: 'center',
     marginBottom: 8,
+  },
+  sheetCommentsLoading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 32,
+    gap: 12,
+  },
+  sheetCommentsLoadingText: {
+    fontSize: 14,
+    color: '#666',
   },
   commentsList: {
     flex: 1,

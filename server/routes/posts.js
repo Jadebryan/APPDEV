@@ -89,6 +89,10 @@ router.post('/', authMiddleware, async (req, res) => {
         postId: post._id,
       }).catch(() => {});
       sendPushToUser(taggedId, 'Tagged', `${authorUsername} tagged you in a post`, { postId: post._id.toString(), type: 'tag' }).catch(() => {});
+      try {
+        const io = req.app.get('io');
+        if (io) io.to(`user:${taggedId}`).emit('notification:new', {});
+      } catch (e) { /* ignore */ }
     }
 
     const u = post.userId;
@@ -106,14 +110,43 @@ router.post('/', authMiddleware, async (req, res) => {
       commentCount: 0,
     };
 
+    // Real-time: broadcast new post to all feed subscribers
+    try {
+      const io = req.app.get('io');
+      if (io) io.to('feed').emit('post:new', transformedPost);
+    } catch (e) { /* ignore */ }
+
     res.status(201).json(transformedPost);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Get comments for a post
-router.get('/:id/comments', async (req, res) => {
+// Get list of users who liked a post (for "who liked" list like TikTok)
+router.get('/:id/likers', async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id)
+      .select('likes')
+      .populate('likes', 'username avatar');
+
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const users = (post.likes || []).filter(Boolean).map((u) => ({
+      _id: u._id.toString(),
+      username: u.username,
+      avatar: u.avatar || '',
+    }));
+
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get comments for a post (auth) – includes replies + comment likes
+router.get('/:id/comments', authMiddleware, async (req, res) => {
   try {
     const post = await Post.findById(req.params.id);
     if (!post) {
@@ -126,6 +159,7 @@ router.get('/:id/comments', async (req, res) => {
     const list = comments.map((c) => {
       const u = c.userId;
       const isPopulated = u && typeof u === 'object' && 'username' in u;
+      const likedByMe = (c.likes || []).some((id) => id.toString() === req.user._id.toString());
       return {
         _id: c._id.toString(),
         postId: c.postId.toString(),
@@ -134,6 +168,9 @@ router.get('/:id/comments', async (req, res) => {
         avatar: isPopulated ? (u.avatar || '') : '',
         text: c.text,
         createdAt: c.createdAt.toISOString(),
+        parentId: c.parentId ? c.parentId.toString() : undefined,
+        likeCount: Array.isArray(c.likes) ? c.likes.length : 0,
+        likedByMe,
       };
     });
     res.json(list);
@@ -149,14 +186,25 @@ router.post('/:id/comments', authMiddleware, async (req, res) => {
     if (!post) {
       return res.status(404).json({ error: 'Post not found' });
     }
-    const { text } = req.body;
+    const { text, parentId } = req.body;
     if (!text || !String(text).trim()) {
       return res.status(400).json({ error: 'Comment text is required' });
+    }
+
+    // Optional threaded replies: validate parent comment belongs to this post
+    let parentObjId = null;
+    if (parentId) {
+      const parent = await Comment.findOne({ _id: parentId, postId: post._id }).select('_id');
+      if (!parent) {
+        return res.status(400).json({ error: 'Parent comment not found' });
+      }
+      parentObjId = parent._id;
     }
     const comment = new Comment({
       postId: post._id,
       userId: req.user._id,
       text: String(text).trim(),
+      parentId: parentObjId,
     });
     await comment.save();
     const postOwnerId = (post.userId && post.userId.toString ? post.userId.toString() : post.userId.toString());
@@ -170,6 +218,10 @@ router.post('/:id/comments', authMiddleware, async (req, res) => {
         commentId: comment._id,
         commentText: (comment.text || '').slice(0, 100),
       }).catch(() => {});
+      try {
+        const io = req.app.get('io');
+        if (io) io.to(`user:${postOwnerId}`).emit('notification:new', {});
+      } catch (e) { /* ignore */ }
 
       // Push: "X commented on your post" (IG-style)
       const { sendPushToUser } = require('../utils/push');
@@ -200,6 +252,10 @@ router.post('/:id/comments', authMiddleware, async (req, res) => {
         commentId: comment._id,
         commentText: (comment.text || '').slice(0, 100),
       }).catch(() => {});
+      try {
+        const io = req.app.get('io');
+        if (io) io.to(`user:${mentionedId}`).emit('notification:new', {});
+      } catch (e) { /* ignore */ }
       const { sendPushToUser } = require('../utils/push');
       const commenterUsername = req.user.username || 'Someone';
       sendPushToUser(mentionedUser._id, 'Mention', `${commenterUsername} mentioned you in a comment`, { postId: post._id.toString(), type: 'mention' }).catch(() => {});
@@ -216,6 +272,45 @@ router.post('/:id/comments', authMiddleware, async (req, res) => {
       avatar: isPopulated ? (u.avatar || '') : '',
       text: comment.text,
       createdAt: comment.createdAt.toISOString(),
+      parentId: comment.parentId ? comment.parentId.toString() : undefined,
+      likeCount: 0,
+      likedByMe: false,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Like/unlike a comment (auth)
+router.post('/:postId/comments/:commentId/like', authMiddleware, async (req, res) => {
+  try {
+    const { postId, commentId } = req.params;
+    const userId = req.user._id;
+    const comment = await Comment.findOne({ _id: commentId, postId }).populate('userId', 'username avatar');
+    if (!comment) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    const isLiked = (comment.likes || []).some((id) => id.toString() === userId.toString());
+    const updated = await Comment.findByIdAndUpdate(
+      comment._id,
+      isLiked ? { $pull: { likes: userId } } : { $addToSet: { likes: userId } },
+      { new: true }
+    ).populate('userId', 'username avatar');
+
+    const u = updated.userId;
+    const isPopulated = u && typeof u === 'object' && 'username' in u;
+    const likedByMe = (updated.likes || []).some((id) => id.toString() === userId.toString());
+    res.json({
+      _id: updated._id.toString(),
+      postId: updated.postId.toString(),
+      userId: u && u._id ? u._id.toString() : '',
+      username: isPopulated ? u.username : 'Unknown',
+      avatar: isPopulated ? (u.avatar || '') : '',
+      text: updated.text,
+      createdAt: updated.createdAt.toISOString(),
+      parentId: updated.parentId ? updated.parentId.toString() : undefined,
+      likeCount: Array.isArray(updated.likes) ? updated.likes.length : 0,
+      likedByMe,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -337,24 +432,36 @@ router.post('/:id/like', authMiddleware, async (req, res) => {
         { new: true }
       );
 
-      // Send notification if not liking own post
+      // Send notification if not liking own post (dedupe: avoid spamming same notif on rapid repeated likes)
       if (postOwnerId !== userIdStr) {
-        await Notification.create({
+        const { hasRecentDuplicateNotification } = require('../utils/notifications');
+        const isDuplicate = await hasRecentDuplicateNotification(Notification, {
           toUserId: postCheck.userId,
           fromUserId: userId,
           type: 'like',
-          postId: postId,
-        }).catch(() => {});
+          postId,
+        });
+        if (!isDuplicate) {
+          await Notification.create({
+            toUserId: postCheck.userId,
+            fromUserId: userId,
+            type: 'like',
+            postId: postId,
+          }).catch(() => {});
+          try {
+            const io = req.app.get('io');
+            if (io) io.to(`user:${postOwnerId}`).emit('notification:new', {});
+          } catch (e) { /* ignore */ }
 
-        // Push: "X liked your post"
-        const { sendPushToUser } = require('../utils/push');
-        const likerUsername = req.user.username || 'Someone';
-        sendPushToUser(
-          postCheck.userId,
-          'Like',
-          `${likerUsername} liked your post`,
-          { postId: postId, type: 'like' }
-        ).catch(() => {});
+          const { sendPushToUser } = require('../utils/push');
+          const likerUsername = req.user.username || 'Someone';
+          sendPushToUser(
+            postCheck.userId,
+            'Like',
+            `${likerUsername} liked your post`,
+            { postId: postId, type: 'like' }
+          ).catch(() => {});
+        }
       }
     }
 

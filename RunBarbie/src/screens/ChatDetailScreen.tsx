@@ -12,10 +12,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import { useRealtime } from '../context/RealtimeContext';
 import { useToast } from '../context/ToastContext';
 import { Message } from '../types';
 import { chatService } from '../services/api';
@@ -30,11 +31,13 @@ const ChatDetailScreen: React.FC = () => {
   const route = useRoute<Route>();
   const { conversationId, otherUser } = route.params;
   const { user: currentUser } = useAuth();
+  const { subscribe, joinConversation, leaveConversation } = useRealtime();
   const { showToast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
 
   const loadMessages = useCallback(async () => {
@@ -57,6 +60,25 @@ const ChatDetailScreen: React.FC = () => {
     loadMessages();
   }, [loadMessages]);
 
+  // Real-time: join conversation room when screen is focused, leave when blurred
+  useFocusEffect(
+    useCallback(() => {
+      joinConversation(conversationId);
+      return () => leaveConversation(conversationId);
+    }, [conversationId, joinConversation, leaveConversation])
+  );
+
+  // Real-time: when a new message arrives in this conversation, append it
+  useEffect(() => {
+    const unsub = subscribe('message:new', (payload: unknown) => {
+      const msg = payload as Message & { conversationId?: string };
+      if (msg?.conversationId === conversationId && msg?._id && msg?.senderId !== currentUser?._id) {
+        setMessages((prev) => (prev.some((m) => m._id === msg._id) ? prev : [...prev, msg]));
+      }
+    });
+    return unsub;
+  }, [subscribe, conversationId, currentUser?._id]);
+
   // Auto-scroll to end when messages change (e.g., new message received)
   useEffect(() => {
     if (messages.length > 0 && !loading) {
@@ -69,15 +91,18 @@ const ChatDetailScreen: React.FC = () => {
   const sendMessage = async () => {
     const text = inputText.trim();
     if (!text || !currentUser || sending) return;
+    const replyToId = replyingToMessage?._id ?? undefined;
     setSending(true);
     setInputText('');
+    setReplyingToMessage(null);
     try {
-      const newMsg = await chatService.sendMessage(conversationId, text);
+      const newMsg = await chatService.sendMessage(conversationId, text, replyToId);
       setMessages((prev) => [...prev, newMsg]);
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
       console.error('Send message error', e);
       setInputText(text);
+      if (replyToId) setReplyingToMessage(messages.find((m) => m._id === replyToId) ?? null);
       showToast('Failed to send. Try again.', 'error');
     } finally {
       setSending(false);
@@ -134,12 +159,26 @@ const ChatDetailScreen: React.FC = () => {
     const msg = item as Message;
     const isMe = msg.senderId === currentUser?._id;
     const hasStoryPreview = !!msg.storyMediaUri;
+    const hasReplyTo = !!msg.replyTo;
     const statusLabel = isMe ? (msg.read ? 'Seen' : 'Sent') : '';
     const storyReplyLabel = isMe ? 'You replied to their story' : 'Replied to your story';
+    const replyToLabel = msg.replyTo?.senderId === currentUser?._id ? 'You' : (msg.replyTo?.senderUsername ? `@${msg.replyTo.senderUsername}` : 'Message');
+    const replySnippet = msg.replyTo?.text ? (msg.replyTo.text.length > 40 ? msg.replyTo.text.slice(0, 40) + '…' : msg.replyTo.text) : '';
 
     return (
       <View style={[styles.messageRow, isMe ? styles.messageRowMe : styles.messageRowThem]}>
-        <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+        <TouchableOpacity
+          style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}
+          activeOpacity={1}
+          onLongPress={() => setReplyingToMessage(msg)}
+          delayLongPress={400}
+        >
+          {hasReplyTo && msg.replyTo && (
+            <View style={[styles.replyToPreview, isMe ? styles.replyToPreviewMe : styles.replyToPreviewThem]}>
+              <Text style={[styles.replyToLabel, isMe && styles.replyToLabelMe]} numberOfLines={1}>{replyToLabel}</Text>
+              <Text style={[styles.replyToSnippet, isMe && styles.replyToSnippetMe]} numberOfLines={2}>{replySnippet || '—'}</Text>
+            </View>
+          )}
           {hasStoryPreview && (
             <View style={styles.storyPreviewInChat}>
               <Image source={{ uri: msg.storyMediaUri! }} style={styles.storyPreviewImage} />
@@ -152,7 +191,7 @@ const ChatDetailScreen: React.FC = () => {
           <Text style={[styles.bubbleTime, isMe && styles.bubbleTimeMe]}>
             {getTimeAgo(msg.createdAt)}
           </Text>
-        </View>
+        </TouchableOpacity>
         {isMe && (
           <Text style={styles.messageStatus}>
             {statusLabel}
@@ -240,6 +279,30 @@ const ChatDetailScreen: React.FC = () => {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
           />
+        )}
+
+        {/* Reply preview bar (Messenger-style) */}
+        {replyingToMessage && (
+          <View style={styles.replyBar}>
+            <View style={styles.replyBarContent}>
+              <View style={styles.replyBarIndicator} />
+              <View style={styles.replyBarTextWrap}>
+                <Text style={styles.replyBarLabel} numberOfLines={1}>
+                  Replying to {replyingToMessage.senderId === currentUser?._id ? 'yourself' : otherUser.username}
+                </Text>
+                <Text style={styles.replyBarSnippet} numberOfLines={1}>
+                  {replyingToMessage.text.length > 50 ? replyingToMessage.text.slice(0, 50) + '…' : replyingToMessage.text}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.replyBarClose}
+                onPress={() => setReplyingToMessage(null)}
+                hitSlop={12}
+              >
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+          </View>
         )}
 
         {/* Input */}
@@ -374,6 +437,34 @@ const styles = StyleSheet.create({
   bubbleTimeMe: {
     color: 'rgba(255,255,255,0.8)',
   },
+  replyToPreview: {
+    marginBottom: 6,
+    paddingLeft: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: 'rgba(0,0,0,0.2)',
+  },
+  replyToPreviewMe: {
+    borderLeftColor: 'rgba(255,255,255,0.6)',
+  },
+  replyToPreviewThem: {
+    borderLeftColor: 'rgba(0,0,0,0.2)',
+  },
+  replyToLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0095f6',
+    marginBottom: 2,
+  },
+  replyToLabelMe: {
+    color: 'rgba(255,255,255,0.95)',
+  },
+  replyToSnippet: {
+    fontSize: 13,
+    color: '#666',
+  },
+  replyToSnippetMe: {
+    color: 'rgba(255,255,255,0.85)',
+  },
   messageStatus: {
     fontSize: 11,
     marginTop: 2,
@@ -408,6 +499,49 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 15,
     color: '#666',
+  },
+  replyBar: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+    backgroundColor: '#f5f5f5',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eee',
+  },
+  replyBarContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  replyBarIndicator: {
+    width: 4,
+    height: 36,
+    borderRadius: 2,
+    backgroundColor: '#0095f6',
+    marginRight: 10,
+  },
+  replyBarTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  replyBarLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0095f6',
+    marginBottom: 2,
+  },
+  replyBarSnippet: {
+    fontSize: 13,
+    color: '#666',
+  },
+  replyBarClose: {
+    padding: 4,
+    marginLeft: 4,
   },
   inputRow: {
     flexDirection: 'row',

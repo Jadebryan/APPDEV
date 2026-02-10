@@ -11,8 +11,11 @@ import {
   useWindowDimensions,
   Platform,
   Modal,
-  Slider,
+  Image,
+  PanResponder,
+  LayoutChangeEvent,
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -359,51 +362,49 @@ const CreateReelScreen: React.FC = () => {
         animationType="slide"
         transparent={true}
         onRequestClose={() => setShowTrimModal(false)}
+        statusBarTranslucent
       >
         <View style={styles.trimModalOverlay}>
-          <View style={styles.trimModalContent}>
-            <View style={styles.trimModalHeader}>
-              <Text style={styles.trimModalTitle}>Trim Video</Text>
-              <TouchableOpacity onPress={() => setShowTrimModal(false)}>
-                <Ionicons name="close" size={24} color="#000" />
-              </TouchableOpacity>
-            </View>
+          <SafeAreaView style={styles.trimModalSafeArea} edges={['top', 'left', 'right']}>
+            <View style={[styles.trimModalContent, styles.trimModalContentDark]}>
+              <View style={styles.trimModalHeaderDark}>
+                <Text style={styles.trimModalTitleDark}>Trim video</Text>
+                <TouchableOpacity onPress={() => setShowTrimModal(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
 
-            {originalVideoUri && videoDuration && (
-              <VideoTrimEditor
-                videoUri={originalVideoUri}
-                duration={videoDuration}
-                startTime={trimStartTime}
-                endTime={trimEndTime}
-                onStartTimeChange={setTrimStartTime}
-                onEndTimeChange={setTrimEndTime}
-                onConfirm={(start, end) => {
-                  // For now, we'll use the original video and handle trimming on backend
-                  // Or we can use ImagePicker's editing feature
-                  setTrimStartTime(start);
-                  setTrimEndTime(end);
-                  setShowTrimModal(false);
-                  // Note: Actual trimming would need to be done on backend or with FFmpeg
-                  // For now, we'll store trim times and handle on upload
-                }}
-                onCancel={() => {
-                  setShowTrimModal(false);
-                  // Reset to auto-trim (first 60 seconds)
-                  if (videoDuration) {
-                    setTrimStartTime(0);
-                    setTrimEndTime(Math.min(60, videoDuration));
-                  }
-                }}
-              />
-            )}
-          </View>
+              {originalVideoUri && videoDuration && (
+                <VideoTrimEditor
+                  videoUri={originalVideoUri}
+                  duration={videoDuration}
+                  startTime={trimStartTime}
+                  endTime={trimEndTime}
+                  onStartTimeChange={setTrimStartTime}
+                  onEndTimeChange={setTrimEndTime}
+                  onConfirm={(start, end) => {
+                    setTrimStartTime(start);
+                    setTrimEndTime(end);
+                    setShowTrimModal(false);
+                  }}
+                  onCancel={() => {
+                    setShowTrimModal(false);
+                    if (videoDuration) {
+                      setTrimStartTime(0);
+                      setTrimEndTime(Math.min(60, videoDuration));
+                    }
+                  }}
+                />
+              )}
+            </View>
+          </SafeAreaView>
         </View>
       </Modal>
     </SafeAreaView>
   );
 };
 
-/** Video Trim Editor Component */
+/** TikTok-style Video Trim Editor: large preview, timeline range bar, Cancel/Next. */
 const VideoTrimEditor: React.FC<{
   videoUri: string;
   duration: number;
@@ -414,100 +415,206 @@ const VideoTrimEditor: React.FC<{
   onConfirm: (start: number, end: number) => void;
   onCancel: () => void;
 }> = ({ videoUri, duration, startTime, endTime, onStartTimeChange, onEndTimeChange, onConfirm, onCancel }) => {
-  const [previewTime, setPreviewTime] = useState(startTime);
+  const { width: screenWidth } = useWindowDimensions();
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 60;
+  const safeStart = Math.max(0, Math.min(Number(startTime) || 0, safeDuration - 1));
+  const safeEnd = Math.max(safeStart + 1, Math.min(Number(endTime) || 60, safeDuration, safeStart + 60));
+  const [previewTime, setPreviewTime] = useState(safeStart);
+  const [trackLayout, setTrackLayout] = useState({ width: 0, x: 0 });
+  const trackWidthRef = useRef(0);
+  const trackXRef = useRef(0);
+  const startEndRef = useRef({ start: safeStart, end: safeEnd });
+  startEndRef.current = { start: safeStart, end: safeEnd };
 
   const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
+    const s = Math.max(0, Number(seconds));
+    const mins = Math.floor(s / 60);
+    const secs = Math.floor(s % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleStartTimeChange = (value: number) => {
-    const newStart = Math.max(0, Math.min(value, duration - 60));
-    onStartTimeChange(newStart);
-    setPreviewTime(newStart);
-    // Adjust end time if needed to maintain 60-second limit
-    if (endTime < newStart + 60) {
-      onEndTimeChange(Math.min(duration, newStart + 60));
-    }
+  const timeToX = (time: number) => {
+    const w = trackWidthRef.current;
+    if (w <= 0) return 0;
+    return (time / safeDuration) * w;
+  };
+  const xToTime = (x: number) => {
+    const w = trackWidthRef.current;
+    if (w <= 0) return 0;
+    return Math.max(0, Math.min((x / w) * safeDuration, safeDuration));
   };
 
-  const handleEndTimeChange = (value: number) => {
-    const newEnd = Math.min(duration, Math.max(startTime + 1, value));
-    // Ensure max 60 seconds
-    if (newEnd - startTime > 60) {
-      onEndTimeChange(startTime + 60);
-    } else {
-      onEndTimeChange(newEnd);
-    }
-    setPreviewTime(startTime); // Preview from start of selected segment
+  const clampStart = (t: number) => Math.max(0, Math.min(t, safeEnd - 1, safeDuration - 60));
+  const clampEnd = (t: number) => Math.max(safeStart + 1, Math.min(t, safeDuration, safeStart + 60));
+
+  const leftThumbPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, g) => {
+        if (trackWidthRef.current <= 0) return;
+        const x = g.moveX - trackXRef.current;
+        const t = clampStart(xToTime(x));
+        const { end } = startEndRef.current;
+        onStartTimeChange(t);
+        setPreviewTime(t);
+        if (end < t + 1) onEndTimeChange(Math.min(safeDuration, t + 60));
+      },
+    })
+  ).current;
+
+  const rightThumbPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, g) => {
+        if (trackWidthRef.current <= 0) return;
+        const x = g.moveX - trackXRef.current;
+        const t = clampEnd(xToTime(x));
+        const { start } = startEndRef.current;
+        onEndTimeChange(t);
+        setPreviewTime(start);
+        if (t - start > 60) onStartTimeChange(t - 60);
+      },
+    })
+  ).current;
+
+  const trackRef = useRef<View>(null);
+  const onTrackLayout = (e: LayoutChangeEvent) => {
+    const { width } = e.nativeEvent.layout;
+    setTrackLayout((prev) => ({ ...prev, width }));
+    trackWidthRef.current = width;
+    trackRef.current?.measureInWindow((x) => {
+      trackXRef.current = x;
+    });
   };
+
+  const timelinePadding = 20;
+  const thumbWidth = 24;
+  const trackHeight = 48;
+  const startX = timeToX(safeStart);
+  const endX = timeToX(safeEnd);
+  const rangeLeft = startX;
+  const rangeWidth = Math.max(0, endX - startX);
 
   return (
-    <View style={styles.trimEditor}>
+    <View style={styles.trimTikTokRoot}>
       <View style={styles.trimPreview}>
-        <ReelPreview uri={videoUri} previewTime={previewTime} />
+        <TrimPreviewWithFallback uri={videoUri} previewTime={previewTime} />
       </View>
 
-      <View style={styles.trimControls}>
-        <View style={styles.trimTimeDisplay}>
-          <View style={styles.trimTimeItem}>
-            <Text style={styles.trimTimeLabel}>Start</Text>
-            <Text style={styles.trimTimeValue}>{formatTime(startTime)}</Text>
-          </View>
-          <View style={styles.trimTimeItem}>
-            <Text style={styles.trimTimeLabel}>Duration</Text>
-            <Text style={styles.trimTimeValue}>{formatTime(endTime - startTime)}</Text>
-          </View>
-          <View style={styles.trimTimeItem}>
-            <Text style={styles.trimTimeLabel}>End</Text>
-            <Text style={styles.trimTimeValue}>{formatTime(endTime)}</Text>
-          </View>
-        </View>
+      <Text style={styles.trimDurationText}>{formatTime(safeEnd - safeStart)}</Text>
 
-        <View style={styles.trimSliderContainer}>
-          <Text style={styles.trimSliderLabel}>Start time</Text>
-          <Slider
-            style={styles.trimSlider}
-            minimumValue={0}
-            maximumValue={Math.max(0, duration - 60)}
-            value={startTime}
-            onValueChange={handleStartTimeChange}
-            minimumTrackTintColor="#0095f6"
-            maximumTrackTintColor="#ddd"
-            thumbTintColor="#0095f6"
+      <View ref={trackRef} style={[styles.trimTimelineWrap, { paddingHorizontal: timelinePadding }]} onLayout={onTrackLayout}>
+        <View style={[styles.trimTimelineTrack, { height: trackHeight }]}>
+          <View
+            style={[
+              styles.trimTimelineRange,
+              { left: rangeLeft, width: rangeWidth },
+            ]}
           />
-        </View>
-
-        <View style={styles.trimSliderContainer}>
-          <Text style={styles.trimSliderLabel}>End time</Text>
-          <Slider
-            style={styles.trimSlider}
-            minimumValue={startTime + 1}
-            maximumValue={Math.min(duration, startTime + 60)}
-            value={endTime}
-            onValueChange={handleEndTimeChange}
-            minimumTrackTintColor="#0095f6"
-            maximumTrackTintColor="#ddd"
-            thumbTintColor="#0095f6"
-          />
-        </View>
-
-        <View style={styles.trimActions}>
-          <TouchableOpacity style={styles.trimCancelBtn} onPress={onCancel}>
-            <Text style={styles.trimCancelText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.trimConfirmBtn}
-            onPress={() => onConfirm(startTime, endTime)}
+          <View
+            style={[
+              styles.trimThumb,
+              styles.trimThumbLeft,
+              {
+                left: startX - thumbWidth / 2,
+                width: thumbWidth,
+                height: trackHeight,
+              },
+            ]}
+            {...leftThumbPan.panHandlers}
           >
-            <Text style={styles.trimConfirmText}>Use this segment</Text>
-          </TouchableOpacity>
+            <View style={styles.trimThumbLine} />
+          </View>
+          <View
+            style={[
+              styles.trimThumb,
+              styles.trimThumbRight,
+              {
+                left: endX - thumbWidth / 2,
+                width: thumbWidth,
+                height: trackHeight,
+              },
+            ]}
+            {...rightThumbPan.panHandlers}
+          >
+            <View style={styles.trimThumbLine} />
+          </View>
         </View>
+      </View>
+
+      <View style={styles.trimTikTokActions}>
+        <TouchableOpacity onPress={onCancel} style={styles.trimTikTokCancel}>
+          <Text style={styles.trimTikTokCancelText}>Cancel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => onConfirm(safeStart, safeEnd)} style={styles.trimTikTokNext}>
+          <Text style={styles.trimTikTokNextText}>Next</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 };
+
+/** Trim modal preview: live video that seeks to previewTime when user drags thumbs. Falls back to thumbnail on Android if needed. */
+function TrimPreviewWithFallback({ uri, previewTime }: { uri: string; previewTime: number }) {
+  const [thumbUri, setThumbUri] = useState<string | null>(null);
+  const [useThumbnail, setUseThumbnail] = useState(Platform.OS === 'android');
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = false;
+    p.muted = true;
+  });
+
+  useEffect(() => {
+    if (!uri || !Number.isFinite(previewTime)) return;
+    try {
+      if (player.duration > 0) {
+        player.currentTime = Math.max(0, Math.min(previewTime, player.duration - 0.1));
+      }
+    } catch (_) {}
+  }, [previewTime, uri, player]);
+
+  useEffect(() => {
+    if (!useThumbnail || !uri) return;
+    let cancelled = false;
+    const timeMs = Math.max(0, Math.min(previewTime, 3600)) * 1000;
+    VideoThumbnails.getThumbnailAsync(uri, { time: timeMs })
+      .then(({ uri: u }) => {
+        if (!cancelled && u) setThumbUri(u);
+      })
+      .catch(() => {
+        if (!cancelled) setThumbUri(null);
+      });
+    return () => { cancelled = true; };
+  }, [uri, previewTime, useThumbnail]);
+
+  if (!useThumbnail) {
+    return (
+      <View style={StyleSheet.absoluteFill}>
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFillObject}
+          contentFit="cover"
+          nativeControls={false}
+          {...(Platform.OS === 'android' ? { surfaceType: 'textureView' as const } : {})}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      {thumbUri ? (
+        <Image source={{ uri: thumbUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+      ) : (
+        <View style={styles.trimPreviewPlaceholder}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.trimPreviewPlaceholderText}>Loading preview…</Text>
+        </View>
+      )}
+    </View>
+  );
+}
 
 /** Simple preview player for the selected video (no loop, just preview). */
 function ReelPreview({ uri, onDurationCheck, previewTime }: { uri: string; onDurationCheck?: (duration: number) => void; previewTime?: number }) {
@@ -713,15 +820,137 @@ const styles = StyleSheet.create({
   },
   trimModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.9)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'flex-end',
+  },
+  trimModalSafeArea: {
+    maxHeight: '92%',
+    width: '100%',
   },
   trimModalContent: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '90%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+    maxHeight: '100%',
+  },
+  trimModalContentDark: {
+    backgroundColor: '#000',
+  },
+  trimModalHeaderDark: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.15)',
+  },
+  trimModalTitleDark: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  trimTikTokRoot: {
+    paddingBottom: Platform.OS === 'ios' ? 20 : 16,
+  },
+  trimDurationText: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 12,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  trimTimelineWrap: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  trimTimelineTrack: {
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 4,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  trimTimelineRange: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    borderRadius: 4,
+  },
+  trimThumb: {
+    position: 'absolute',
+    top: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  trimThumbLeft: {
+    left: 0,
+  },
+  trimThumbRight: {
+    left: 0,
+  },
+  trimThumbLine: {
+    width: 3,
+    height: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  trimTikTokActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 8,
+  },
+  trimTikTokCancel: {
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  trimTikTokCancelText: {
+    fontSize: 17,
+    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
+  },
+  trimTikTokNext: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#fe2c55',
+    borderRadius: 8,
+  },
+  trimTikTokNextText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  trimEditorScroll: {
+    flexGrow: 0,
+    maxHeight: 520,
+  },
+  trimEditorScrollContent: {
+    paddingBottom: 16,
+  },
+  trimPreviewPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  trimPreviewPlaceholderText: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
   },
   trimModalHeader: {
     flexDirection: 'row',
@@ -742,9 +971,12 @@ const styles = StyleSheet.create({
   },
   trimPreview: {
     width: '100%',
-    height: 300,
+    aspectRatio: 9 / 16,
+    maxHeight: 380,
     backgroundColor: '#000',
-    marginTop: 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginHorizontal: 16,
   },
   trimControls: {
     padding: 16,

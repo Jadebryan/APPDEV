@@ -68,6 +68,13 @@ const UserProfileScreen: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  // Record profile view (TikTok-style) when viewing someone else's profile
+  useEffect(() => {
+    if (!isOwnProfile && userId && currentUser?._id) {
+      userService.recordProfileView(userId).catch(() => {});
+    }
+  }, [userId, isOwnProfile, currentUser?._id]);
+
   const onRefresh = () => {
     setRefreshing(true);
     loadData();
@@ -187,14 +194,22 @@ const UserProfileScreen: React.FC = () => {
                 <Text style={styles.statNumber}>{posts.length}</Text>
                 <Text style={styles.statLabel}>Posts</Text>
               </View>
-              <View style={styles.statItem}>
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={() => profile && navigation.navigate('FollowList', { mode: 'followers', userId: profile._id, username: profile.username })}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.statNumber}>{profile?.followers?.length ?? 0}</Text>
                 <Text style={styles.statLabel}>Followers</Text>
-              </View>
-              <View style={styles.statItem}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={() => profile && navigation.navigate('FollowList', { mode: 'following', userId: profile._id, username: profile.username })}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.statNumber}>{profile?.following?.length ?? 0}</Text>
                 <Text style={styles.statLabel}>Following</Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
         }

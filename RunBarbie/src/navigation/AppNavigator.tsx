@@ -33,6 +33,8 @@ import ConnectedAppsScreen from '../screens/ConnectedAppsScreen';
 import HelpFeedbackScreen from '../screens/HelpFeedbackScreen';
 import CreateReelScreen from '../screens/CreateReelScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
+import FollowListScreen from '../screens/FollowListScreen';
+import ProfileVisitorsScreen from '../screens/ProfileVisitorsScreen';
 import AddGoalScreen from '../screens/AddGoalScreen';
 import GoalsScreen from '../screens/GoalsScreen';
 import SavedPostsScreen from '../screens/SavedPostsScreen';
@@ -60,6 +62,7 @@ const FeedStackNavigator = () => (
     <FeedStack.Screen name="StoryCapture" component={StoryCaptureScreen} />
     <FeedStack.Screen name="Comments" component={CommentsScreen} />
     <FeedStack.Screen name="UserProfile" component={UserProfileScreen} />
+    <FeedStack.Screen name="FollowList" component={FollowListScreen} />
     <FeedStack.Screen name="AddGoal" component={AddGoalScreen} />
     <FeedStack.Screen name="Goals" component={GoalsScreen} />
     <FeedStack.Screen name="SavedPosts" component={SavedPostsScreen} />
@@ -87,6 +90,8 @@ const ProfileStackNavigator = () => (
     <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} />
     <ProfileStack.Screen name="ProfileMenu" component={ProfileMenuScreen} />
     <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
+    <ProfileStack.Screen name="FollowList" component={FollowListScreen} />
+    <ProfileStack.Screen name="ProfileVisitors" component={ProfileVisitorsScreen} />
     <ProfileStack.Screen name="NotificationsSettings" component={NotificationsSettingsScreen} />
     <ProfileStack.Screen name="SafetySettings" component={SafetySettingsScreen} />
     <ProfileStack.Screen name="ConnectedApps" component={ConnectedAppsScreen} />

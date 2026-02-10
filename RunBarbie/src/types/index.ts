@@ -79,6 +79,29 @@ export interface CreateReelData {
   activityType?: ActivityType;
 }
 
+/** Reel comment from API (for comments sheet) */
+export interface ReelCommentApi {
+  _id: string;
+  id: string;
+  userId: string;
+  username: string;
+  avatar?: string;
+  text: string;
+  timeAgo: string;
+  likeCount: number;
+  parentId?: string;
+  createdAt: string;
+  timestamp: number;
+}
+
+/** Reply preview (Messenger-style) for a message */
+export interface MessageReplyTo {
+  _id: string;
+  text: string;
+  senderId: string;
+  senderUsername?: string;
+}
+
 export interface Message {
   _id: string;
   conversationId: string;
@@ -88,6 +111,8 @@ export interface Message {
   read: boolean;
   storyId?: string;
   storyMediaUri?: string;
+  /** When set, this message is a reply to another message */
+  replyTo?: MessageReplyTo;
 }
 
 export interface Conversation {

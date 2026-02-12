@@ -16,10 +16,12 @@ import { authService } from '../services/api';
 import { RootStackParamList } from '../navigation/types';
 import { useToast } from '../context/ToastContext';
 import { getAuthErrorDisplay } from '../utils/authErrors';
+import { useTheme } from '../context/ThemeContext';
 
 type ResetPasswordRouteProp = RouteProp<RootStackParamList, 'ResetPassword'>;
 
 const ResetPasswordScreen: React.FC = () => {
+  const { palette } = useTheme();
   const route = useRoute<ResetPasswordRouteProp>();
   const email = route.params?.email ?? '';
   const [code, setCode] = useState('');
@@ -128,7 +130,7 @@ const ResetPasswordScreen: React.FC = () => {
             </View>
 
             <TouchableOpacity
-              style={[styles.button, (loading || resendLoading) && styles.buttonDisabled]}
+              style={[styles.button, { backgroundColor: palette.primary }, (loading || resendLoading) && styles.buttonDisabled]}
               onPress={handleReset}
               disabled={loading || resendLoading}
             >
@@ -145,9 +147,9 @@ const ResetPasswordScreen: React.FC = () => {
               style={styles.resendButton}
             >
               {resendLoading ? (
-                <ActivityIndicator color="#FF69B4" size="small" />
+                <ActivityIndicator color={palette.primary} size="small" />
               ) : (
-                <Text style={styles.resendText}>Resend code</Text>
+                <Text style={[styles.resendText, { color: palette.primary }]}>Resend code</Text>
               )}
             </TouchableOpacity>
 
@@ -155,7 +157,7 @@ const ResetPasswordScreen: React.FC = () => {
               onPress={() => navigation.navigate('Login' as never)}
               style={styles.linkButton}
             >
-              <Text style={styles.linkText}>Back to login</Text>
+              <Text style={[styles.linkText, { color: palette.primary }]}>Back to login</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
+  Modal,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -19,11 +21,13 @@ import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 import { Post, User } from '../types';
 import { userService } from '../services/api';
 import { FeedStackParamList } from '../navigation/types';
+import { useTheme } from '../context/ThemeContext';
 
 type UserProfileRoute = RouteProp<FeedStackParamList, 'UserProfile'>;
 type UserProfileNav = NativeStackNavigationProp<FeedStackParamList, 'UserProfile'>;
 
 const UserProfileScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation<UserProfileNav>();
   const route = useRoute<UserProfileRoute>();
   const { userId, username: paramUsername, avatar: paramAvatar, bio: paramBio } = route.params;
@@ -34,6 +38,7 @@ const UserProfileScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [following, setFollowing] = useState(false);
+  const [avatarViewerVisible, setAvatarViewerVisible] = useState(false);
 
   const isOwnProfile = currentUser?._id === userId;
 
@@ -150,6 +155,26 @@ const UserProfileScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <Modal
+        visible={avatarViewerVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setAvatarViewerVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.avatarViewerOverlay}
+          activeOpacity={1}
+          onPress={() => setAvatarViewerVisible(false)}
+        >
+          <StatusBar barStyle="light-content" />
+          <Image
+            source={{ uri: displayAvatar || DEFAULT_AVATAR_URI }}
+            style={styles.avatarViewerImage}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
+      </Modal>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} activeOpacity={0.7}>
           <Ionicons name="arrow-back" size={24} color="#000" />
@@ -166,12 +191,16 @@ const UserProfileScreen: React.FC = () => {
         contentContainerStyle={styles.gridContent}
         ListHeaderComponent={
           <View style={styles.profileSection}>
-            <View style={styles.avatarContainer}>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={() => setAvatarViewerVisible(true)}
+              activeOpacity={0.9}
+            >
               <Image
                 source={{ uri: displayAvatar || DEFAULT_AVATAR_URI }}
                 style={styles.avatar}
               />
-            </View>
+            </TouchableOpacity>
             <Text style={styles.username}>{displayName}</Text>
             {displayBio ? <Text style={styles.bio}>{displayBio}</Text> : null}
             {isOwnProfile ? (
@@ -180,7 +209,7 @@ const UserProfileScreen: React.FC = () => {
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
-                style={[styles.followBtn, following && styles.followingBtn]}
+                style={[styles.followBtn, following ? styles.followingBtn : { backgroundColor: palette.primary }]}
                 onPress={handleFollow}
                 activeOpacity={0.7}
               >
@@ -286,6 +315,16 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '600',
     color: '#666',
+  },
+  avatarViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarViewerImage: {
+    width: '100%',
+    height: '100%',
   },
   username: {
     fontSize: 18,

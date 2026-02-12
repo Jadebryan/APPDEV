@@ -16,10 +16,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { FeedStackParamList } from '../navigation/types';
 import { userService } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
 
 type AddGoalRoute = RouteProp<FeedStackParamList, 'AddGoal'>;
 
 const AddGoalScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<AddGoalRoute>();
   const { post } = route.params;
@@ -117,7 +119,7 @@ const AddGoalScreen: React.FC = () => {
           </View>
 
           <TouchableOpacity
-            style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
+            style={[styles.submitBtn, { backgroundColor: palette.primary }, submitting && styles.submitBtnDisabled]}
             onPress={handleSubmit}
             disabled={submitting}
             activeOpacity={0.8}

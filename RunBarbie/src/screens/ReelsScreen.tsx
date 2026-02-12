@@ -17,6 +17,8 @@ import {
   TextInput,
   KeyboardAvoidingView,
   BackHandler,
+  PanResponder,
+  GestureResponderEvent,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -31,6 +33,7 @@ import { reelService, userService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useRealtime } from '../context/RealtimeContext';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
 import ConfirmModal from '../components/ConfirmModal';
 
 // Tab bar height from AppNavigator (50 + paddingTop 5 + paddingBottom 5)
@@ -163,10 +166,16 @@ const ReelCell = memo(function ReelCell({
   isFollowing,
   showFollowButton,
 }: ReelCellProps) {
+  const { palette } = useTheme();
   const progressAnim = useRef(new Animated.Value(0)).current;
   const [isLoading, setIsLoading] = useState(true);
   const [isBuffering, setIsBuffering] = useState(false);
   const [videoContentFit, setVideoContentFit] = useState<'cover' | 'contain'>('cover');
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubProgress, setScrubProgress] = useState(0);
+  const progressBarWidthRef = useRef(0);
   const player = useVideoPlayer(item.videoUri, p => {
     p.loop = true;
     // Optimize for longer videos: adjust update interval based on video length
@@ -342,16 +351,18 @@ const ReelCell = memo(function ReelCell({
 
   // Sync progress bar to real video currentTime/duration
   useEffect(() => {
-    if (!isActive) {
+    if (!isActive || isScrubbing) {
       progressAnim.setValue(0);
       return;
     }
     const sync = () => {
-      const duration = player.duration;
-      const currentTime = player.currentTime;
-      if (duration > 0) {
-        const progress = Math.min(1, Math.max(0, currentTime / duration));
+      const d = player.duration || 0;
+      const t = player.currentTime || 0;
+      if (d > 0) {
+        const progress = Math.min(1, Math.max(0, t / d));
         progressAnim.setValue(progress);
+        setCurrentTime(t);
+        setDuration(d);
       }
     };
     sync();
@@ -360,7 +371,50 @@ const ReelCell = memo(function ReelCell({
       sub.remove();
       progressAnim.setValue(0);
     };
-  }, [isActive, player, progressAnim]);
+  }, [isActive, isScrubbing, player, progressAnim]);
+
+  const updateScrubFromGesture = (evt: GestureResponderEvent) => {
+    const width = progressBarWidthRef.current || 1;
+    const x = Math.min(Math.max(0, evt.nativeEvent.locationX), width);
+    const ratio = x / width;
+    const d = player.duration || duration || 0;
+    const newTime = d * ratio;
+    setScrubProgress(ratio);
+    setCurrentTime(newTime);
+    if (d > 0) {
+      try {
+        player.currentTime = newTime;
+      } catch (_e) {
+        // Ignore if player released
+      }
+    }
+    progressAnim.setValue(ratio);
+  };
+
+  const finishScrub = () => {
+    setIsScrubbing(false);
+    setScrubProgress(0);
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        setIsScrubbing(true);
+        updateScrubFromGesture(evt);
+      },
+      onPanResponderMove: (evt) => {
+        updateScrubFromGesture(evt);
+      },
+      onPanResponderRelease: () => {
+        finishScrub();
+      },
+      onPanResponderTerminate: () => {
+        finishScrub();
+      },
+    })
+  ).current;
 
   const heartScale = scale.interpolate({
     inputRange: [0, 1],
@@ -401,7 +455,7 @@ const ReelCell = memo(function ReelCell({
         pointerEvents="none"
       />
       {item.activityType && (
-        <View style={styles.activityBadge}>
+        <View style={[styles.activityBadge, { backgroundColor: palette.primary + 'E6' }]}>
           <Ionicons name="footsteps" size={12} color="#fff" />
           <Text style={styles.activityBadgeText}>
             {ACTIVITY_LABELS[item.activityType]}
@@ -416,7 +470,7 @@ const ReelCell = memo(function ReelCell({
       </Animated.View>
       <View style={[styles.rightActions, { bottom: rightActionsBottom }]} pointerEvents="box-none">
         <TouchableOpacity style={styles.actionButton} activeOpacity={0.8} onPress={() => onLike(item._id)}>
-          <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={32} color={isLiked ? '#FF69B4' : '#fff'} />
+          <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={32} color={isLiked ? palette.primary : '#fff'} />
           <Text style={styles.actionLabel}>{item.likes?.length ?? 0}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} activeOpacity={0.8} onPress={() => onComment(item)}>
@@ -446,7 +500,7 @@ const ReelCell = memo(function ReelCell({
             <Text style={styles.username}>@{item.user?.username ?? 'user'}</Text>
           </TouchableOpacity>
           {showFollowButton ? (
-            <TouchableOpacity style={styles.followBtn} activeOpacity={0.8} onPress={() => onFollow(item.userId)}>
+            <TouchableOpacity style={[styles.followBtn, { backgroundColor: palette.primary }]} activeOpacity={0.8} onPress={() => onFollow(item.userId)}>
               <Text style={styles.followBtnText}>{isFollowing ? 'Following' : 'Follow'}</Text>
             </TouchableOpacity>
           ) : null}
@@ -455,21 +509,40 @@ const ReelCell = memo(function ReelCell({
           <Text style={styles.caption} numberOfLines={2}>{item.caption}</Text>
         ) : null}
       </View>
-      {/* Full-width progress bar (extends to right-side navs), synced to real video */}
+      {/* Full-width progress bar with time and scrubbing */}
       {isActive ? (
-        <View style={styles.reelProgressBarFullWidth} pointerEvents="none">
-          <View style={styles.reelProgressBarBg} />
-          <Animated.View
-            style={[
-              styles.reelProgressBarFill,
-              {
-                width: progressAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ['0%', '100%'],
-                }),
-              },
-            ]}
-          />
+        <View
+          style={styles.reelProgressTouchArea}
+          pointerEvents="auto"
+          {...panResponder.panHandlers}
+          onLayout={(e) => {
+            progressBarWidthRef.current = e.nativeEvent.layout.width;
+          }}
+        >
+          <View style={styles.reelProgressBarFullWidth}>
+            <View style={styles.reelProgressBarBg} />
+            <Animated.View
+              style={[
+                styles.reelProgressBarFill,
+                {
+                  width: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
+          </View>
+          <View style={styles.reelProgressTimeRow}>
+            <Text style={styles.reelProgressTimeText}>
+              {formatDuration(
+                duration > 0
+                  ? (isScrubbing ? scrubProgress * duration : currentTime)
+                  : 0
+              )}{' '}
+              / {duration > 0 ? formatDuration(duration) : '0:00'}
+            </Text>
+          </View>
         </View>
       ) : null}
     </View>
@@ -479,6 +552,7 @@ const ReelCell = memo(function ReelCell({
 const ReelsScreen: React.FC = () => {
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<{ params?: { initialReelId?: string; reportedReelId?: string; returnToSearch?: boolean } }>();
   const returnToSearch = route?.params?.returnToSearch;
@@ -516,7 +590,7 @@ const ReelsScreen: React.FC = () => {
   // Use measured reel area height so video fills exactly (no black gap from miscalculation)
   const [reelAreaHeight, setReelAreaHeight] = useState(SCREEN_HEIGHT - TAB_BAR_HEIGHT - insets.top);
   const REEL_ITEM_HEIGHT = reelAreaHeight;
-  const overlayBottom = 10;
+  const overlayBottom = 52;
   const rightActionsBottom = 12;
   const heartScales = useRef<{ [key: string]: Animated.Value }>({});
   const lastTapRef = useRef<{ reelId: string; time: number }>({ reelId: '', time: 0 });
@@ -1107,7 +1181,7 @@ const ReelsScreen: React.FC = () => {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#FF69B4" />
+          <ActivityIndicator size="large" color={palette.primary} />
           <Text style={styles.loadingText}>Loading reels...</Text>
         </View>
       </SafeAreaView>
@@ -1130,10 +1204,10 @@ const ReelsScreen: React.FC = () => {
           <Text style={styles.emptySubtext}>
             Short-form video from the community — or create your first reel
           </Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={openCreateReel}>
+          <TouchableOpacity style={[styles.retryBtn, { backgroundColor: palette.primary }]} onPress={openCreateReel}>
             <Text style={styles.retryBtnText}>Create reel</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.retryBtn, { marginTop: 8 }]} onPress={loadReels}>
+          <TouchableOpacity style={[styles.retryBtn, { marginTop: 8, backgroundColor: palette.primary }]} onPress={loadReels}>
             <Text style={styles.retryBtnText}>Refresh</Text>
           </TouchableOpacity>
         </View>
@@ -1198,7 +1272,7 @@ const ReelsScreen: React.FC = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor="#FF69B4"
+              tintColor={palette.primary}
             />
           }
         />
@@ -1223,6 +1297,7 @@ const ReelsScreen: React.FC = () => {
         transparent
         animationType="slide"
         onRequestClose={handleCloseCommentsSheet}
+        statusBarTranslucent
       >
         <View style={styles.commentsSheetBackdropWrap}>
           <TouchableOpacity
@@ -1232,12 +1307,12 @@ const ReelsScreen: React.FC = () => {
           />
           <KeyboardAvoidingView
             style={styles.commentsSheetWrap}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={0}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
             pointerEvents="box-none"
           >
             <View
-              style={[styles.commentsSheet, { height: SCREEN_HEIGHT * 0.66 }]}
+              style={[styles.commentsSheet, { height: SCREEN_HEIGHT * 0.66, maxHeight: SCREEN_HEIGHT - 100 }]}
               pointerEvents="box-none"
             >
             <TouchableOpacity
@@ -1251,7 +1326,7 @@ const ReelsScreen: React.FC = () => {
 
             {sheetCommentsLoading ? (
               <View style={styles.sheetCommentsLoading}>
-                <ActivityIndicator size="small" color="#FF69B5" />
+                <ActivityIndicator size="small" color={palette.primary} />
                 <Text style={styles.sheetCommentsLoadingText}>Loading comments...</Text>
               </View>
             ) : (
@@ -1273,8 +1348,8 @@ const ReelsScreen: React.FC = () => {
                       onPress={() => handleToggleViewReplies(row.parentId)}
                     >
                       <View style={styles.sheetViewRepliesLine} />
-                      <Text style={styles.sheetViewRepliesText}>{isExpanded ? 'Hide replies' : label}</Text>
-                      <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#0095F6" />
+                      <Text style={[styles.sheetViewRepliesText, { color: palette.primary }]}>{isExpanded ? 'Hide replies' : label}</Text>
+                      <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={palette.primary} />
                     </TouchableOpacity>
                   );
                 }
@@ -1290,7 +1365,7 @@ const ReelsScreen: React.FC = () => {
                       </View>
                       <View style={styles.sheetCommentBody}>
                         {isReply && item.parentUsername && (
-                          <Text style={styles.sheetReplyTo}>Replying to @{item.parentUsername}</Text>
+                          <Text style={[styles.sheetReplyTo, { color: palette.primary }]}>Replying to @{item.parentUsername}</Text>
                         )}
                         <Text style={styles.sheetCommentMeta}>
                           {item.username}  {item.timeAgo}
@@ -1303,7 +1378,7 @@ const ReelsScreen: React.FC = () => {
                     </View>
                     <View style={styles.sheetCommentRight}>
                       <TouchableOpacity style={styles.sheetCommentLike} activeOpacity={0.7} onPress={() => handleToggleCommentLike(item.id)}>
-                        <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={18} color={isLiked ? '#FF3B5C' : '#333'} />
+                        <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={18} color={isLiked ? palette.primary : '#333'} />
                       </TouchableOpacity>
                       <Text style={styles.sheetCommentLikeCount}>{displayCount}</Text>
                     </View>
@@ -1358,9 +1433,9 @@ const ReelsScreen: React.FC = () => {
                 disabled={!sheetCommentText.trim() || sheetCommentSending}
               >
                 {sheetCommentSending ? (
-                  <ActivityIndicator size="small" color="#0095F6" />
+                  <ActivityIndicator size="small" color={palette.primary} />
                 ) : (
-                  <Ionicons name="send" size={22} color={sheetCommentText.trim() ? '#0095F6' : '#ccc'} />
+                  <Ionicons name="send" size={22} color={sheetCommentText.trim() ? palette.primary : '#ccc'} />
                 )}
               </TouchableOpacity>
             </View>
@@ -1415,7 +1490,7 @@ const ReelsScreen: React.FC = () => {
                 <Ionicons name="refresh-circle-outline" size={22} color="#000" />
                 <Text style={styles.moreSheetRowText}>Auto scroll</Text>
                 <TouchableOpacity
-                  style={[styles.moreSheetToggle, autoScrollOn && styles.moreSheetToggleOn]}
+                  style={[styles.moreSheetToggle, autoScrollOn && [styles.moreSheetToggleOn, { backgroundColor: palette.primary }]]}
                   onPress={() => setAutoScrollOn(prev => !prev)}
                   activeOpacity={0.8}
                 >
@@ -1497,7 +1572,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1559,10 +1633,10 @@ const styles = StyleSheet.create({
   },
   retryBtn: {
     marginTop: 20,
+    // backgroundColor set inline from palette
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 20,
-    backgroundColor: '#FF69B4',
   },
   retryBtnText: {
     fontSize: 14,
@@ -1588,14 +1662,20 @@ const styles = StyleSheet.create({
     bottom: 0,
     height: 200,
   },
-  reelProgressBarFullWidth: {
+  reelProgressTouchArea: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: 2,
-    overflow: 'hidden',
+    height: 32,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
     zIndex: 10,
+  },
+  reelProgressBarFullWidth: {
+    height: 3,
+    borderRadius: 2,
+    overflow: 'hidden',
   },
   reelProgressBarBg: {
     position: 'absolute',
@@ -1625,7 +1705,16 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     backgroundColor: '#fff',
-    borderRadius: 1,
+    borderRadius: 2,
+  },
+  reelProgressTimeRow: {
+    marginTop: 4,
+    alignItems: 'flex-end',
+  },
+  reelProgressTimeText: {
+    fontSize: 11,
+    color: '#fff',
+    opacity: 0.9,
   },
   activityBadge: {
     position: 'absolute',
@@ -1633,7 +1722,7 @@ const styles = StyleSheet.create({
     left: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 105, 180, 0.9)',
+    // backgroundColor set inline from palette
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
@@ -1700,7 +1789,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: '#FF69B4',
   },
   followBtnText: {
     fontSize: 13,
@@ -1876,7 +1964,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#F5F5F5',
     borderTopWidth: 1,
     borderTopColor: '#EEE',
   },
@@ -1895,7 +1982,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderTopWidth: 1,
     borderTopColor: '#EEE',
-    backgroundColor: '#FAFAFA',
   },
   sheetEmojiBtn: {
     padding: 6,
@@ -1988,7 +2074,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 8,
     borderRadius: 12,
-    backgroundColor: '#F0F0F0',
   },
   moreSheetTopBtnLabel: {
     fontSize: 13,
@@ -2037,7 +2122,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   moreSheetToggleOn: {
-    backgroundColor: '#FF69B4',
     justifyContent: 'flex-end',
   },
   moreSheetToggleThumb: {

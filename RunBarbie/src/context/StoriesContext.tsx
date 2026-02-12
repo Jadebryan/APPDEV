@@ -18,6 +18,8 @@ export interface Story {
   likedByMe?: boolean;
 }
 
+export type PendingStoryOpen = { userId: string; storyId?: string } | null;
+
 interface StoriesContextType {
   stories: Story[];
   /** All of the current user's stories (newest first), for IG-style multi-slide */
@@ -31,6 +33,9 @@ interface StoriesContextType {
     caption?: string;
     activityType?: ActivityType;
   }) => void;
+  /** Set from notification tap – FeedScreen picks this up and opens the story */
+  pendingStoryOpen: PendingStoryOpen;
+  setPendingStoryOpen: (payload: PendingStoryOpen) => void;
 }
 
 const StoriesContext = createContext<StoriesContextType | undefined>(undefined);
@@ -68,6 +73,7 @@ export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const { subscribe } = useRealtime();
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingStoryOpen, setPendingStoryOpen] = useState<PendingStoryOpen>(null);
 
   const loadStories = useCallback(async () => {
     try {
@@ -151,6 +157,8 @@ export const StoriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
     loading,
     refreshStories,
     addOrUpdateMyStory,
+    pendingStoryOpen,
+    setPendingStoryOpen,
   };
 
   return <StoriesContext.Provider value={value}>{children}</StoriesContext.Provider>;

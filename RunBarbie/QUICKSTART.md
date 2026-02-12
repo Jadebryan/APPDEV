@@ -58,9 +58,17 @@ npm start
 ```
 
 ### 6. Run on Your Phone
+
+**iOS / Android (Expo Go):**
 1. Install **Expo Go** app (iOS/Android)
 2. Scan the QR code from terminal
 3. App will load!
+
+**Android – full gallery/camera access:** Expo Go on Android has limited media library access. For full functionality (stories, posts, reels), use a development build:
+```bash
+npm run android
+```
+(run from project root). This builds and installs the app on your connected device or emulator with full permissions.
 
 ## 📱 Testing the App
 
@@ -92,6 +100,12 @@ npm start
 ### "Image upload fails"
 - ✅ Check image size (keep under 5MB)
 - ✅ Ensure camera/gallery permissions granted
+
+### "Expo Go can no longer provide full access to the media library" (Android)
+This is an Expo Go limitation on Android 13+. Use a development build for full gallery/camera access:
+```bash
+npm run android
+```
 
 ## 📚 Next Steps
 

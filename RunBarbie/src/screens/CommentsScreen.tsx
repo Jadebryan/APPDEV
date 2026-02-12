@@ -17,10 +17,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { FeedStackParamList } from '../navigation/types';
 import { postService, PostComment } from '../services/api';
 import { getTimeAgo } from '../utils/timeAgo';
+import { useTheme } from '../context/ThemeContext';
 
 type CommentsRoute = RouteProp<FeedStackParamList, 'Comments'>;
 
 const CommentsScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<CommentsRoute>();
   const { postId, username, caption, image, returnToSearch } = route.params;
@@ -181,7 +183,7 @@ const CommentsScreen: React.FC = () => {
       >
         {loading ? (
           <View style={styles.loadingWrap}>
-            <ActivityIndicator size="small" color="#FF69B5" />
+            <ActivityIndicator size="small" color={palette.primary} />
             <Text style={styles.loadingText}>Loading comments...</Text>
           </View>
         ) : (
@@ -206,8 +208,8 @@ const CommentsScreen: React.FC = () => {
                     onPress={() => handleToggleViewReplies(row.parentId)}
                   >
                     <View style={styles.viewRepliesLine} />
-                    <Text style={styles.viewRepliesText}>{isExpanded ? 'Hide replies' : label}</Text>
-                    <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#0095F6" />
+                    <Text style={[styles.viewRepliesText, { color: palette.primary }]}>{isExpanded ? 'Hide replies' : label}</Text>
+                    <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={palette.primary} />
                   </TouchableOpacity>
                 );
               }
@@ -227,7 +229,7 @@ const CommentsScreen: React.FC = () => {
                     </View>
                     <View style={styles.commentBody}>
                       {isReply && row.parentUsername ? (
-                        <Text style={styles.replyingTo}>Replying to @{row.parentUsername}</Text>
+                        <Text style={[styles.replyingTo, { color: palette.primary }]}>Replying to @{row.parentUsername}</Text>
                       ) : null}
                       <Text style={styles.commentMetaTop}>
                         <Text style={styles.commentUsername}>{item.username}</Text>  {getTimeAgo(item.createdAt)}
@@ -240,7 +242,7 @@ const CommentsScreen: React.FC = () => {
                   </View>
                   <View style={styles.commentRight}>
                     <TouchableOpacity style={styles.likeBtn} activeOpacity={0.7} onPress={() => handleToggleLike(item)}>
-                      <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? '#FF3B5C' : '#333'} />
+                      <Ionicons name={liked ? 'heart' : 'heart-outline'} size={18} color={liked ? palette.primary : '#333'} />
                     </TouchableOpacity>
                     <Text style={styles.likeCount}>{count}</Text>
                   </View>
@@ -282,7 +284,7 @@ const CommentsScreen: React.FC = () => {
             disabled={!text.trim() || posting}
             activeOpacity={0.8}
           >
-            <Text style={styles.sendText}>{posting ? '…' : 'Post'}</Text>
+            <Text style={[styles.sendText, { color: (!text.trim() || posting) ? '#999' : palette.primary }]}>{posting ? '…' : 'Post'}</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

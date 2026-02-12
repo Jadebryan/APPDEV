@@ -14,10 +14,12 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useToast } from '../context/ToastContext';
 import { authService } from '../services/api';
+import { useTheme } from '../context/ThemeContext';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ForgotPasswordScreen: React.FC = () => {
+  const { palette } = useTheme();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -62,7 +64,7 @@ const ForgotPasswordScreen: React.FC = () => {
         >
           <View style={styles.content}>
             <View style={styles.iconWrap}>
-              <Ionicons name="key-outline" size={56} color="#FF69B4" />
+              <Ionicons name="key-outline" size={56} color={palette.primary} />
             </View>
             <Text style={styles.title}>Forgot password?</Text>
             <Text style={styles.subtitle}>
@@ -86,7 +88,7 @@ const ForgotPasswordScreen: React.FC = () => {
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
+              style={[styles.button, { backgroundColor: palette.primary }, loading && styles.buttonDisabled]}
               onPress={handleSubmit}
               disabled={loading}
             >
@@ -102,7 +104,7 @@ const ForgotPasswordScreen: React.FC = () => {
               onPress={() => navigation.navigate('Login' as never)}
               disabled={loading}
             >
-              <Text style={styles.linkText}>Back to Login</Text>
+              <Text style={[styles.linkText, { color: palette.primary }]}>Back to Login</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

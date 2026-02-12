@@ -18,12 +18,14 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import { useToast } from '../context/ToastContext';
 import { getAuthErrorDisplay } from '../utils/authErrors';
+import { useTheme } from '../context/ThemeContext';
 
 WebBrowser.maybeCompleteAuthSession();
 
 const GOOGLE_CLIENT_ID = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 
 const RegisterScreen: React.FC = () => {
+  const { palette } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
@@ -110,7 +112,7 @@ const RegisterScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.content}>
-            <Text style={styles.title}>Join Run Barbie🎀</Text>
+            <Text style={[styles.title, { color: palette.primary }]}>Join Run Barbie🎀</Text>
         <Text style={styles.subtitle}>Start sharing your adventures</Text>
 
         <TextInput
@@ -156,7 +158,7 @@ const RegisterScreen: React.FC = () => {
         </View>
 
         <TouchableOpacity
-          style={[styles.button, anyLoading && styles.buttonDisabled]}
+          style={[styles.button, { backgroundColor: palette.primary, borderColor: palette.primary }, anyLoading && styles.buttonDisabled]}
           onPress={handleRegister}
           disabled={anyLoading}
         >
@@ -228,7 +230,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
     marginBottom: 10,
-    color: '#FF69B4',
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,

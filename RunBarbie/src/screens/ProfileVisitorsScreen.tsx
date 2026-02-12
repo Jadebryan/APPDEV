@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/api';
 import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
+import { useTheme } from '../context/ThemeContext';
 
 type VisitorItem = { _id: string; username: string; avatar?: string; viewedAt: string };
 
@@ -30,6 +31,7 @@ function getTimeAgo(isoDate: string): string {
 }
 
 const ProfileVisitorsScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const { user: currentUser } = useAuth();
   const [list, setList] = useState<VisitorItem[]>([]);
@@ -105,7 +107,7 @@ const ProfileVisitorsScreen: React.FC = () => {
       </View>
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#FF69B5" />
+          <ActivityIndicator size="large" color={palette.primary} />
         </View>
       ) : list.length === 0 ? (
         <View style={styles.center}>
@@ -120,7 +122,7 @@ const ProfileVisitorsScreen: React.FC = () => {
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF69B5" />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
           }
         />
       )}

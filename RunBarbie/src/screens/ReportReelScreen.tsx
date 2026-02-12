@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ReelsStackParamList } from '../navigation/types';
 import { reelService } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
 
 type ReportReelRoute = RouteProp<ReelsStackParamList, 'ReportReel'>;
 
@@ -25,6 +26,7 @@ const REPORT_REASONS = [
 ] as const;
 
 const ReportReelScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<ReportReelRoute>();
   const { reelId } = route.params;
@@ -65,8 +67,8 @@ const ReportReelScreen: React.FC = () => {
             onPress={() => setReason(r.value)}
             activeOpacity={0.8}
           >
-            <View style={[styles.radio, reason === r.value && styles.radioSelected]}>
-              {reason === r.value && <View style={styles.radioDot} />}
+            <View style={[styles.radio, reason === r.value && [styles.radioSelected, { borderColor: palette.primary }]]}>
+              {reason === r.value && <View style={[styles.radioDot, { backgroundColor: palette.primary }]} />}
             </View>
             <Text style={styles.optionText}>{r.label}</Text>
           </TouchableOpacity>
@@ -84,7 +86,7 @@ const ReportReelScreen: React.FC = () => {
         />
 
         <TouchableOpacity
-          style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
+          style={[styles.submitBtn, { backgroundColor: palette.primary }, submitting && styles.submitBtnDisabled]}
           onPress={handleSubmit}
           disabled={submitting}
           activeOpacity={0.8}

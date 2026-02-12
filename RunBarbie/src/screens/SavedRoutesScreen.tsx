@@ -8,10 +8,12 @@ import { userService, SavedRoute } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
 import ConfirmModal from '../components/ConfirmModal';
+import { useTheme } from '../context/ThemeContext';
 
 type SavedRoutesRoute = RouteProp<FeedStackParamList, 'SavedRoutes'>;
 
 const SavedRoutesScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<SavedRoutesRoute>();
   const { showToast } = useToast();
@@ -84,8 +86,8 @@ const SavedRoutesScreen: React.FC = () => {
       <View style={styles.actions}>
         {(item.latitude != null && item.longitude != null) && (
           <TouchableOpacity onPress={() => openInMap(item)} style={styles.mapBtn}>
-            <Ionicons name="map-outline" size={20} color="#0095F6" />
-            <Text style={styles.mapBtnText}>Map</Text>
+            <Ionicons name="map-outline" size={20} color={palette.primary} />
+            <Text style={[styles.mapBtnText, { color: palette.primary }]}>Map</Text>
           </TouchableOpacity>
         )}
         <TouchableOpacity onPress={() => handleRemove(item)} style={styles.removeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -107,7 +109,7 @@ const SavedRoutesScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#FF69B4" />
+          <ActivityIndicator size="large" color={palette.primary} />
         </View>
       ) : routes.length === 0 ? (
         <View style={styles.centered}>

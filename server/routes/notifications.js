@@ -11,6 +11,7 @@ router.get('/', authMiddleware, async (req, res) => {
       .populate('fromUserId', 'username avatar')
       .populate('postId', 'image')
       .populate('reelId', 'videoUri')
+      .populate('storyId', 'mediaUri')
       .sort({ createdAt: -1 })
       .limit(100);
 
@@ -21,6 +22,9 @@ router.get('/', authMiddleware, async (req, res) => {
       const postImage = post && typeof post === 'object' && post.image ? post.image : undefined;
       const reel = n.reelId;
       const reelIdStr = n.reelId ? (n.reelId._id ? n.reelId._id.toString() : n.reelId.toString()) : undefined;
+      const story = n.storyId;
+      const storyIdStr = n.storyId ? (n.storyId._id ? n.storyId._id.toString() : n.storyId.toString()) : undefined;
+      const storyImage = story && typeof story === 'object' && story.mediaUri ? story.mediaUri : undefined;
       let text = '';
       if (n.type === 'comment' && n.commentText) {
         text = `commented: "${n.commentText.length > 50 ? n.commentText.slice(0, 50) + '…' : n.commentText}"`;
@@ -30,6 +34,8 @@ router.get('/', authMiddleware, async (req, res) => {
         text = 'liked your reel';
       } else if (n.type === 'story_like') {
         text = 'liked your story';
+      } else if (n.type === 'story_view') {
+        text = 'viewed your story';
       } else if (n.type === 'follow') {
         text = 'started following you';
       } else if (n.type === 'mention' && n.commentText) {
@@ -42,6 +48,8 @@ router.get('/', authMiddleware, async (req, res) => {
         text = `replied to your story: "${n.commentText.length > 50 ? n.commentText.slice(0, 50) + '…' : n.commentText}"`;
       } else if (n.type === 'story_reply') {
         text = 'replied to your story';
+      } else if (n.type === 'profile_view') {
+        text = 'visited your profile';
       }
       return {
         id: n._id.toString(),
@@ -55,6 +63,8 @@ router.get('/', authMiddleware, async (req, res) => {
         postId: n.postId ? (n.postId._id ? n.postId._id.toString() : n.postId.toString()) : undefined,
         postImage: postImage || undefined,
         reelId: reelIdStr || undefined,
+        storyId: storyIdStr || undefined,
+        storyImage: storyImage || undefined,
       };
     });
 

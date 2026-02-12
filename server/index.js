@@ -30,6 +30,7 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/chats', require('./routes/chats'));
+app.use('/api/runs', require('./routes/runs'));
 
 // MongoDB connection – must complete before accepting requests (avoids "buffering timed out" and auth failures)
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/runbarbie';

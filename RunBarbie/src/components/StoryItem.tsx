@@ -3,6 +3,7 @@ import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
+import { useTheme } from '../context/ThemeContext';
 
 interface StoryItemProps {
   username: string;
@@ -29,6 +30,7 @@ const StoryItem: React.FC<StoryItemProps> = ({
   onPress,
   onAddPress,
 }) => {
+  const { palette } = useTheme();
   const avatarSize = 68; // 68px diameter as per requirements
   const ringWidth = 2;
   const totalSize = avatarSize + ringWidth * 2;
@@ -47,11 +49,11 @@ const StoryItem: React.FC<StoryItemProps> = ({
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.avatarContainer}>
-        {/* Gradient ring for active stories and "Your story" (pink → orange → yellow) */}
+        {/* Gradient ring for active stories and "Your story" – uses palette */}
         {showGradient ? (
           <View style={{ width: totalSize, height: totalSize }}>
             <LinearGradient
-              colors={['#FF006E', '#FF6B35', '#FFD23F']}
+              colors={[palette.primary, palette.secondary]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={[styles.gradientRing, { width: totalSize, height: totalSize }]}
@@ -62,7 +64,7 @@ const StoryItem: React.FC<StoryItemProps> = ({
             </LinearGradient>
             {isYourStory && (
               <TouchableOpacity
-                style={styles.plusBadge}
+                style={[styles.plusBadge, { backgroundColor: palette.primary }]}
                 activeOpacity={0.7}
                 onPress={(e) => {
                   e.stopPropagation();
@@ -78,7 +80,7 @@ const StoryItem: React.FC<StoryItemProps> = ({
             <AvatarContent />
             {isYourStory && (
               <TouchableOpacity
-                style={styles.plusBadge}
+                style={[styles.plusBadge, { backgroundColor: palette.primary }]}
                 activeOpacity={0.7}
                 onPress={(e) => {
                   e.stopPropagation();
@@ -142,7 +144,6 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#0095F6', // Instagram blue
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2.5,

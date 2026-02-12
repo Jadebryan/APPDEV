@@ -10,11 +10,15 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useNotifications, NotificationItem, NotificationType } from '../context/NotificationsContext';
-import { FeedStackParamList } from '../navigation/types';
+import { useStories } from '../context/StoriesContext';
+import { FeedStackParamList, MainTabParamList } from '../navigation/types';
+import { chatService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 
 type NotificationsNav = NativeStackNavigationProp<FeedStackParamList, 'Notifications'>;
 
@@ -32,6 +36,9 @@ const getSectionTitle = (timestamp: number): string => {
 const NotificationsScreen: React.FC = () => {
   const navigation = useNavigation<NotificationsNav>();
   const { notifications, unreadCount, loading, refreshNotifications, markAsRead, markAllAsRead, refreshTimeAgo } = useNotifications();
+  const { user } = useAuth();
+  const { palette } = useTheme();
+  const { setPendingStoryOpen } = useStories();
   const [markAllPressed, setMarkAllPressed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
@@ -78,14 +85,22 @@ const NotificationsScreen: React.FC = () => {
     switch (type) {
       case 'like':
       case 'reel_like':
-        return <Ionicons name="heart" size={14} color="#FF69B4" />;
+        return <Ionicons name="heart" size={14} color={palette.primary} />;
       case 'comment':
       case 'mention':
         return <Ionicons name="chatbubble" size={14} color="#666" />;
       case 'follow':
-        return <Ionicons name="person-add" size={14} color="#0095F6" />;
+        return <Ionicons name="person-add" size={14} color={palette.secondary} />;
       case 'tag':
-        return <Ionicons name="pricetag" size={14} color="#0095F6" />;
+        return <Ionicons name="pricetag" size={14} color={palette.secondary} />;
+      case 'story_like':
+        return <Ionicons name="heart" size={14} color={palette.primary} />;
+      case 'story_reply':
+        return <Ionicons name="chatbubble" size={14} color="#666" />;
+      case 'profile_view':
+        return <Ionicons name="person" size={14} color={palette.secondary} />;
+      case 'story_view':
+        return <Ionicons name="eye" size={14} color="#666" />;
       default:
         return <Ionicons name="notifications" size={14} color="#666" />;
     }
@@ -93,23 +108,84 @@ const NotificationsScreen: React.FC = () => {
 
   const handlePressItem = (item: NotificationItem) => {
     if (!item.read) markAsRead(item.id);
-    if (item.postId && (item.type === 'like' || item.type === 'comment' || item.type === 'mention' || item.type === 'tag')) {
+
+    if (
+      item.postId &&
+      (item.type === 'like' ||
+        item.type === 'comment' ||
+        item.type === 'mention' ||
+        item.type === 'tag')
+    ) {
       navigation.navigate('Comments', {
         postId: item.postId,
         username: item.username,
         caption: item.text || '',
-        image: item.postImage || 'https://images.unsplash.com/photo-1544966503-7cc75df67383?w=400',
+        image:
+          item.postImage ||
+          'https://images.unsplash.com/photo-1544966503-7cc75df67383?w=400',
       });
-    } else if (item.reelId && item.type === 'reel_like') {
-      (navigation.getParent() as any)?.navigate?.('Reels', { screen: 'ReelsHome', params: { initialReelId: item.reelId } });
-    } else if (item.type === 'follow' && item.userId) {
+      return;
+    }
+
+    if (item.reelId && item.type === 'reel_like') {
+      (navigation.getParent() as any)?.navigate?.('Reels', {
+        screen: 'ReelsHome',
+        params: { initialReelId: item.reelId },
+      });
+      return;
+    }
+
+    if (item.type === 'follow' && item.userId) {
       navigation.navigate('UserProfile', {
         userId: item.userId,
         username: item.username,
         avatar: item.avatar,
       });
-    } else if (item.type === 'follow') {
+      return;
+    }
+
+    if (item.type === 'follow') {
       navigation.navigate('FeedHome');
+      return;
+    }
+
+    // Story reply → jump into chat with the replier
+    if (item.type === 'story_reply' && item.userId) {
+      (async () => {
+        try {
+          const conversation = await chatService.getOrCreateConversation(item.userId!);
+          const mainTabs = navigation.getParent()?.getParent() as any;
+          if (mainTabs && typeof mainTabs.navigate === 'function') {
+            mainTabs.navigate('ChatsStack' as keyof MainTabParamList, {
+              screen: 'ChatDetail',
+              params: {
+                conversationId: conversation._id,
+                otherUser: conversation.participant,
+              },
+            });
+          }
+        } catch (e) {
+          console.error('Failed to open chat from story reply notification', e);
+          const mainTabs = navigation.getParent()?.getParent() as any;
+          if (mainTabs && typeof mainTabs.navigate === 'function') {
+            mainTabs.navigate('ChatsStack' as keyof MainTabParamList);
+          }
+        }
+      })();
+      return;
+    }
+
+    // Story like / view → open the story overlay (your story)
+    // Set pending in context first (survives navigation), then reset to FeedHome
+    if ((item.type === 'story_like' || item.type === 'story_view') && item.storyId && user?._id) {
+      setPendingStoryOpen({ userId: user._id, storyId: item.storyId });
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: 'FeedHome' }],
+        })
+      );
+      return;
     }
   };
 
@@ -135,8 +211,8 @@ const NotificationsScreen: React.FC = () => {
         </Text>
         <Text style={styles.timeAgo}>{item.timeAgo}</Text>
       </View>
-      {item.postImage && (
-        <Image source={{ uri: item.postImage }} style={styles.thumb} />
+      {(item.postImage || ((item.type === 'story_like' || item.type === 'story_view' || item.type === 'story_reply') && item.storyImage)) && (
+        <Image source={{ uri: item.postImage || item.storyImage }} style={styles.thumb} resizeMode="cover" />
       )}
     </TouchableOpacity>
   );
@@ -162,7 +238,7 @@ const NotificationsScreen: React.FC = () => {
             style={styles.markAllWrap}
             activeOpacity={0.7}
           >
-            <Text style={[styles.markAll, markAllPressed && styles.markAllPressed]}>Mark all as read</Text>
+            <Text style={[styles.markAll, { color: palette.primary }, markAllPressed && styles.markAllPressed]}>Mark all as read</Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.headerRight} />
@@ -170,7 +246,7 @@ const NotificationsScreen: React.FC = () => {
       </View>
       {loading && !refreshing ? (
         <View style={styles.empty}>
-          <ActivityIndicator size="large" color="#FF69B5" />
+          <ActivityIndicator size="large" color={palette.primary} />
           <Text style={styles.emptyText}>Loading notifications...</Text>
         </View>
       ) : sections.length === 0 ? (
@@ -187,7 +263,7 @@ const NotificationsScreen: React.FC = () => {
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF69B5" />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
           }
         />
       )}
@@ -231,7 +307,6 @@ const styles = StyleSheet.create({
   },
   markAll: {
     fontSize: 12,
-    color: '#FF69B4',
     fontWeight: '600',
   },
   markAllPressed: {

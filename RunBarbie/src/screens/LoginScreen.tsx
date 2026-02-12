@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import { storage } from '../utils/storage';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
 import { getAuthErrorDisplay } from '../utils/authErrors';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -39,6 +40,7 @@ const LoginScreen: React.FC = () => {
   const { login, loginWithGoogle } = useAuth();
   const navigation = useNavigation();
   const { showToast } = useToast();
+  const { palette } = useTheme();
 
   const redirectUriOptions = { useProxy: true };
   const [googleRequest, googleResponse, googlePromptAsync] = useIdTokenAuthRequest(
@@ -164,7 +166,7 @@ const LoginScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.content}>
-            <Text style={styles.title}>Run Barbie🎀</Text>
+            <Text style={[styles.title, { color: palette.primary }]}>Run Barbie🎀</Text>
             <Text style={styles.subtitle}>Share your outdoor adventures</Text>
 
             <TextInput
@@ -221,7 +223,7 @@ const LoginScreen: React.FC = () => {
                 onPress={() => setRememberMe((r) => !r)}
                 disabled={anyLoading}
               >
-                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                <View style={[styles.checkbox, { borderColor: palette.primary }, rememberMe && { backgroundColor: palette.primary }]}>
                   {rememberMe ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
                 </View>
                 <Text style={styles.checkLabel}>Remember me</Text>
@@ -232,7 +234,7 @@ const LoginScreen: React.FC = () => {
             </View>
 
             <TouchableOpacity
-              style={[styles.button, anyLoading && styles.buttonDisabled]}
+              style={[styles.button, { backgroundColor: palette.primary, borderColor: palette.primary }, anyLoading && styles.buttonDisabled]}
               onPress={handleLogin}
               disabled={anyLoading}
             >
@@ -274,7 +276,7 @@ const LoginScreen: React.FC = () => {
               disabled={anyLoading}
             >
               <Text style={styles.linkText}>
-                Don't have an account? <Text style={styles.linkTextBold}>Register</Text>
+                Don't have an account? <Text style={[styles.linkTextBold, { color: palette.primary }]}>Register</Text>
               </Text>
             </TouchableOpacity>
           </View>
@@ -308,7 +310,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
     marginBottom: 10,
-    color: '#FF69B4',
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -327,7 +328,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111',
     borderWidth: 1,
-    borderColor: 'rgba(255, 105, 180, 0.2)',
+    borderColor: 'rgba(150, 150, 150, 0.2)',
   },
   inputError: {
     borderColor: '#c00',
@@ -372,13 +373,9 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: '#FF69B4',
     marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: '#FF69B4',
   },
   checkLabel: {
     fontSize: 14,
@@ -391,7 +388,6 @@ const styles = StyleSheet.create({
     color: '#C71585',
   },
   button: {
-    backgroundColor: '#FF69B4',
     borderRadius: 10,
     padding: 15,
     alignItems: 'center',

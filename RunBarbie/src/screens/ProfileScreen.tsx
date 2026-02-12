@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   useWindowDimensions,
+  Modal,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -17,6 +19,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 import { Post, Reel } from '../types';
 import { userService, reelService } from '../services/api';
@@ -39,6 +42,7 @@ const FROM_PROFILE_PARAMS = { fromProfile: true };
 const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<ProfileNav>();
   const { user, logout } = useAuth();
+  const { palette } = useTheme();
   const { width } = useWindowDimensions();
   const [posts, setPosts] = useState<Post[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
@@ -49,6 +53,7 @@ const ProfileScreen: React.FC = () => {
   const [profileVisitorsCount, setProfileVisitorsCount] = useState(0);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+  const [avatarViewerVisible, setAvatarViewerVisible] = useState(false);
 
   const openSavedSection = (item: (typeof SAVED_SECTIONS)[0]) => {
     const mainTabs = (navigation.getParent() as any)?.getParent?.();
@@ -188,19 +193,21 @@ const ProfileScreen: React.FC = () => {
   const runCount = weekPosts.filter((p) => p.activityType === 'run').length;
 
   const thumbSize = (width - 4) / 3;
+  const savedItemSize = (width - 2) / 2; // 2px gap between 2 columns
   const gridData = tab === 'posts' ? posts : reels;
   const isPost = (item: Post | Reel): item is Post => 'image' in item;
 
   const renderSavedSection = ({ item }: { item: (typeof SAVED_SECTIONS)[0] }) => (
-    <TouchableOpacity style={styles.savedRow} onPress={() => openSavedSection(item)} activeOpacity={0.7}>
-      <View style={styles.savedRowIcon}>
-        <Ionicons name={item.icon} size={24} color="#000" />
+    <TouchableOpacity
+      style={[styles.savedGridItem, { width: savedItemSize, height: savedItemSize }]}
+      onPress={() => openSavedSection(item)}
+      activeOpacity={0.8}
+    >
+      <View style={styles.savedGridIcon}>
+        <Ionicons name={item.icon} size={28} color="#000" />
       </View>
-      <View style={styles.savedRowText}>
-        <Text style={styles.savedRowLabel}>{item.label}</Text>
-        <Text style={styles.savedRowSublabel}>{item.sublabel}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={20} color="#999" />
+      <Text style={styles.savedGridLabel} numberOfLines={1}>{item.label}</Text>
+      <Text style={styles.savedGridSublabel} numberOfLines={1}>{item.sublabel}</Text>
     </TouchableOpacity>
   );
 
@@ -242,13 +249,37 @@ const ProfileScreen: React.FC = () => {
 
   const header = (
     <>
+      <Modal
+        visible={avatarViewerVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setAvatarViewerVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.avatarViewerOverlay}
+          activeOpacity={1}
+          onPress={() => setAvatarViewerVisible(false)}
+        >
+          <StatusBar barStyle="light-content" />
+          <Image
+            source={{ uri: user.avatar || DEFAULT_AVATAR_URI }}
+            style={styles.avatarViewerImage}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
+      </Modal>
       <View style={styles.profileSection}>
-        <View style={styles.avatarContainer}>
+        <TouchableOpacity
+          style={styles.avatarContainer}
+          onPress={() => setAvatarViewerVisible(true)}
+          activeOpacity={0.9}
+        >
           <Image
             source={{ uri: user.avatar || DEFAULT_AVATAR_URI }}
             style={styles.avatar}
           />
-        </View>
+        </TouchableOpacity>
         <Text style={styles.username}>{user.username}</Text>
         {user.bio ? <Text style={styles.bio}>{user.bio}</Text> : null}
         <TouchableOpacity
@@ -328,7 +359,7 @@ const ProfileScreen: React.FC = () => {
           >
             <Ionicons name="eye-outline" size={22} color="#000" />
             {profileVisitorsCount > 0 && (
-              <View style={styles.headerIconBadge}>
+              <View style={[styles.headerIconBadge, { backgroundColor: palette.primary }]}>
                 <Text style={styles.headerIconBadgeText}>{profileVisitorsCount > 99 ? '99+' : profileVisitorsCount}</Text>
               </View>
             )}
@@ -341,16 +372,16 @@ const ProfileScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color="#333" />
+          <ActivityIndicator size="large" color={palette.primary} />
         </View>
       ) : (
         <FlatList
           data={tab === 'saved' ? SAVED_SECTIONS : gridData}
-          numColumns={tab === 'saved' ? 1 : 3}
+          numColumns={tab === 'saved' ? 2 : 3}
           keyExtractor={(item) => ((item as any)._id != null ? (item as any)._id : (item as any).id)}
           ListHeaderComponent={header}
-          columnWrapperStyle={tab === 'saved' ? undefined : styles.gridRow}
-          contentContainerStyle={tab === 'saved' ? styles.savedListContent : styles.gridContent}
+          columnWrapperStyle={tab === 'saved' ? styles.savedGridRow : styles.gridRow}
+          contentContainerStyle={styles.gridContent}
           renderItem={tab === 'saved' ? renderSavedSection : renderGridItem}
           key={tab}
           refreshControl={tab !== 'saved' ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#333" /> : undefined}
@@ -419,7 +450,6 @@ const styles = StyleSheet.create({
     minWidth: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#FF69B5',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
@@ -461,6 +491,16 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '600',
     color: '#666',
+  },
+  avatarViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarViewerImage: {
+    width: '100%',
+    height: '100%',
   },
   username: {
     fontSize: 18,
@@ -544,31 +584,40 @@ const styles = StyleSheet.create({
   gridContent: {
     paddingBottom: 24,
   },
-  savedListContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  savedRow: {
+  savedGridRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#eee',
+    marginBottom: 2,
+    gap: 2,
   },
-  savedRowIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  savedGridItem: {
     backgroundColor: '#f0f0f0',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
+    padding: 12,
   },
-  savedRowText: { flex: 1 },
-  savedRowLabel: { fontSize: 16, fontWeight: '600', color: '#000' },
-  savedRowSublabel: { fontSize: 13, color: '#666', marginTop: 2 },
+  savedGridIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  savedGridLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    textAlign: 'center',
+  },
+  savedGridSublabel: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 2,
+    textAlign: 'center',
+  },
   gridRow: {
+    flexDirection: 'row',
     marginBottom: 2,
     gap: 2,
   },

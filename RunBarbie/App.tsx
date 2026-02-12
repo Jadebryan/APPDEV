@@ -8,11 +8,13 @@ const poppinsFonts = {
   Poppins_600SemiBold: require('./assets/fonts/Poppins_600SemiBold.ttf'),
   Poppins_700Bold: require('./assets/fonts/Poppins_700Bold.ttf'),
 };
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { RealtimeProvider } from './src/context/RealtimeContext';
 import { StoriesProvider } from './src/context/StoriesContext';
 import { NotificationsProvider } from './src/context/NotificationsContext';
 import { ToastProvider } from './src/context/ToastContext';
+import { ThemeProvider } from './src/context/ThemeContext';
 import { UploadProvider } from './src/context/UploadContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { registerPushTokenWhenLoggedIn } from './src/utils/registerPushToken';
@@ -35,20 +37,24 @@ export default function App() {
   }
 
   return (
-    <AuthProvider>
-      <PushTokenRegistration />
-      <RealtimeProvider>
-        <StoriesProvider>
-          <NotificationsProvider>
-            <ToastProvider>
-              <UploadProvider>
-                <AppNavigator />
-                <StatusBar style="auto" />
-              </UploadProvider>
-            </ToastProvider>
-          </NotificationsProvider>
-        </StoriesProvider>
-      </RealtimeProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <PushTokenRegistration />
+        <RealtimeProvider>
+          <StoriesProvider>
+            <NotificationsProvider>
+              <ToastProvider>
+                <ThemeProvider>
+                  <UploadProvider>
+                    <AppNavigator />
+                    <StatusBar style="auto" />
+                  </UploadProvider>
+                </ThemeProvider>
+              </ToastProvider>
+            </NotificationsProvider>
+          </StoriesProvider>
+        </RealtimeProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

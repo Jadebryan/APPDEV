@@ -4,6 +4,7 @@ const Post = require('../models/Post');
 const Reel = require('../models/Reel');
 const Notification = require('../models/Notification');
 const authMiddleware = require('../middleware/auth');
+const { hasRecentDuplicateNotification } = require('../utils/notifications');
 
 const router = express.Router();
 
@@ -43,6 +44,93 @@ router.patch('/me', authMiddleware, async (req, res) => {
   }
 });
 
+// Get notification preferences (auth)
+router.get('/me/notification-preferences', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('notificationPreferences').lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const prefs = user.notificationPreferences || {};
+    res.json({
+      likes: prefs.likes !== false,
+      comments: prefs.comments !== false,
+      follow: prefs.follow !== false,
+      messages: prefs.messages !== false,
+      weeklySummary: prefs.weeklySummary !== false,
+      challenges: prefs.challenges === true,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update notification preferences (auth)
+router.patch('/me/notification-preferences', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { likes, comments, follow, messages, weeklySummary, challenges } = req.body;
+    if (!user.notificationPreferences) user.notificationPreferences = {};
+    if (typeof likes === 'boolean') user.notificationPreferences.likes = likes;
+    if (typeof comments === 'boolean') user.notificationPreferences.comments = comments;
+    if (typeof follow === 'boolean') user.notificationPreferences.follow = follow;
+    if (typeof messages === 'boolean') user.notificationPreferences.messages = messages;
+    if (typeof weeklySummary === 'boolean') user.notificationPreferences.weeklySummary = weeklySummary;
+    if (typeof challenges === 'boolean') user.notificationPreferences.challenges = challenges;
+    user.markModified('notificationPreferences');
+    await user.save();
+    const prefs = user.notificationPreferences || {};
+    res.json({
+      likes: prefs.likes !== false,
+      comments: prefs.comments !== false,
+      follow: prefs.follow !== false,
+      messages: prefs.messages !== false,
+      weeklySummary: prefs.weeklySummary !== false,
+      challenges: prefs.challenges === true,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get connected apps (auth)
+router.get('/me/connected-apps', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('connectedApps').lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const apps = user.connectedApps || {};
+    res.json({
+      strava: !!apps.strava,
+      garmin: !!apps.garmin,
+      appleHealth: !!apps.appleHealth,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update connected apps (auth) – toggles connection state
+router.patch('/me/connected-apps', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { strava, garmin, appleHealth } = req.body;
+    if (!user.connectedApps) user.connectedApps = {};
+    if (typeof strava === 'boolean') user.connectedApps.strava = strava;
+    if (typeof garmin === 'boolean') user.connectedApps.garmin = garmin;
+    if (typeof appleHealth === 'boolean') user.connectedApps.appleHealth = appleHealth;
+    user.markModified('connectedApps');
+    await user.save();
+    const apps = user.connectedApps || {};
+    res.json({
+      strava: !!apps.strava,
+      garmin: !!apps.garmin,
+      appleHealth: !!apps.appleHealth,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Register Expo push token for current user (auth)
 router.patch('/me/push-token', authMiddleware, async (req, res) => {
   try {
@@ -76,6 +164,38 @@ router.post('/me/profile-view', authMiddleware, async (req, res) => {
       viewerId,
       profileUserId,
     }).catch(() => {});
+
+    // Create a notification for the profile owner (but not for self-views)
+    try {
+      const ownerId = profileUserId;
+      if (ownerId.toString() !== viewerId.toString()) {
+        const isDuplicate = await hasRecentDuplicateNotification(Notification, {
+          toUserId: ownerId,
+          fromUserId: viewerId,
+          type: 'profile_view',
+        }, 5 * 60 * 1000); // 5 minutes window
+
+        if (!isDuplicate) {
+          await Notification.create({
+            toUserId: ownerId,
+            fromUserId: viewerId,
+            type: 'profile_view',
+          }).catch(() => {});
+
+          try {
+            const io = req.app.get('io');
+            if (io) {
+              io.to(`user:${ownerId}`).emit('notification:new', {});
+            }
+          } catch (_e) {
+            // ignore socket errors
+          }
+        }
+      }
+    } catch (_e) {
+      // notifications are best-effort
+    }
+
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

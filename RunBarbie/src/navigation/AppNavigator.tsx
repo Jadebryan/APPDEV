@@ -3,7 +3,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { View, Image, StyleSheet, ActivityIndicator, Text } from 'react-native';
+import { View, Image, StyleSheet, ActivityIndicator, Text, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -23,6 +24,7 @@ import ChatDetailScreen from '../screens/ChatDetailScreen';
 import ChatInfoScreen from '../screens/ChatInfoScreen';
 import VideoCallScreen from '../screens/VideoCallScreen';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { chatService } from '../services/api';
 import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 import EditProfileScreen from '../screens/EditProfileScreen';
@@ -42,6 +44,9 @@ import SavedRoutesScreen from '../screens/SavedRoutesScreen';
 import ReportScreen from '../screens/ReportScreen';
 import SavedReelsScreen from '../screens/SavedReelsScreen';
 import ReportReelScreen from '../screens/ReportReelScreen';
+import StartRunScreen from '../screens/StartRunScreen';
+import ActiveRunScreen from '../screens/ActiveRunScreen';
+import RunHistoryScreen from '../screens/RunHistoryScreen';
 import { RootStackParamList, MainTabParamList, FeedStackParamList, ChatsStackParamList, ProfileStackParamList, ReelsStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -68,6 +73,7 @@ const FeedStackNavigator = () => (
     <FeedStack.Screen name="SavedPosts" component={SavedPostsScreen} />
     <FeedStack.Screen name="SavedRoutes" component={SavedRoutesScreen} />
     <FeedStack.Screen name="Report" component={ReportScreen} />
+    <FeedStack.Screen name="ActiveRun" component={ActiveRunScreen} />
   </FeedStack.Navigator>
 );
 
@@ -94,6 +100,8 @@ const ProfileStackNavigator = () => (
     <ProfileStack.Screen name="ProfileVisitors" component={ProfileVisitorsScreen} />
     <ProfileStack.Screen name="NotificationsSettings" component={NotificationsSettingsScreen} />
     <ProfileStack.Screen name="SafetySettings" component={SafetySettingsScreen} />
+    <ProfileStack.Screen name="StartRun" component={StartRunScreen} />
+    <ProfileStack.Screen name="RunHistory" component={RunHistoryScreen} />
     <ProfileStack.Screen name="ConnectedApps" component={ConnectedAppsScreen} />
     <ProfileStack.Screen name="HelpFeedback" component={HelpFeedbackScreen} />
   </ProfileStack.Navigator>
@@ -108,22 +116,10 @@ const ReelsStackNavigator = () => (
   </ReelsStack.Navigator>
 );
 
-/**
- * Bottom Navigation Component - Instagram-style
- * 5 icons: Home (filled when active), Reels, Chats, Search, Profile (circular avatar)
- * White background with subtle top border
- */
-const DEFAULT_TAB_BAR_STYLE = {
-  backgroundColor: '#fff',
-  borderTopWidth: 1,
-  borderTopColor: '#DBDBDB',
-  height: 50,
-  paddingBottom: 5,
-  paddingTop: 5,
-};
-
 const MainTabs = () => {
   const { user } = useAuth();
+  const { palette } = useTheme();
+  const insets = useSafeAreaInsets();
 
   // Total unread chats count for badge (Messenger-style)
   const [unreadChatsCount, setUnreadChatsCount] = useState(0);
@@ -159,11 +155,21 @@ const MainTabs = () => {
         const nestedIndex = nestedState?.index ?? 0;
         const currentScreenName = nestedRoutes?.[nestedIndex]?.name;
         const hideTabBar =
-          (focusedRoute?.name === 'FeedStack' && (currentScreenName === 'StoryCapture' || currentScreenName === 'CreatePost')) ||
+          (focusedRoute?.name === 'FeedStack' && (currentScreenName === 'StoryCapture' || currentScreenName === 'CreatePost' || currentScreenName === 'ActiveRun')) ||
           (focusedRoute?.name === 'Reels' && currentScreenName === 'CreateReel');
 
+        const tabBarStyle = hideTabBar
+          ? { display: 'none' as const }
+          : {
+              backgroundColor: '#fff',
+              borderTopWidth: 1,
+              borderTopColor: '#DBDBDB',
+              height: 50 + Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0),
+              paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0),
+              paddingTop: 5,
+            };
         return {
-          tabBarStyle: hideTabBar ? { display: 'none' } : DEFAULT_TAB_BAR_STYLE,
+          tabBarStyle,
           tabBarIcon: ({ focused, color, size }) => {
             let iconName: keyof typeof Ionicons.glyphMap;
 
@@ -207,7 +213,7 @@ const MainTabs = () => {
                 <View style={styles.chatTabIconWrap}>
                   <Ionicons name={iconName} size={size} color={color} />
                   {unreadChatsCount > 0 && (
-                    <View style={styles.chatBadge}>
+                    <View style={[styles.chatBadge, { backgroundColor: palette.primary }]}>
                       <Text style={styles.chatBadgeText}>
                         {unreadChatsCount > 99 ? '99+' : unreadChatsCount}
                       </Text>
@@ -219,8 +225,8 @@ const MainTabs = () => {
 
             return <Ionicons name={iconName} size={size} color={color} />;
           },
-          tabBarActiveTintColor: '#000',
-          tabBarInactiveTintColor: '#000',
+          tabBarActiveTintColor: palette.primary,
+          tabBarInactiveTintColor: '#999',
           tabBarShowLabel: false,
           headerShown: false,
         };
@@ -292,11 +298,12 @@ const styles = StyleSheet.create({
 
 const AppNavigator = () => {
   const { user, loading } = useAuth();
+  const { palette } = useTheme();
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF69B4" />
+        <ActivityIndicator size="large" color={palette.primary} />
       </View>
     );
   }

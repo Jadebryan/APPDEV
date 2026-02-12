@@ -44,22 +44,44 @@ async function sendExpoPush(to, title, body, data = {}) {
   }
 }
 
+/** Map push type to notification preference key */
+const TYPE_TO_PREF = {
+  like: 'likes',
+  reel_like: 'likes',
+  story_like: 'likes',
+  comment: 'comments',
+  mention: 'comments',
+  tag: 'comments',
+  story_reply: 'comments',
+  follow: 'follow',
+  message: 'messages',
+};
+
 /**
  * Send a push notification to a user by their MongoDB _id.
- * Fetches the user's expoPushToken and sends if present.
+ * Fetches the user's expoPushToken and notification preferences.
+ * Respects user preferences – only sends if the preference for this type is enabled.
  * @param {object} userId - Mongoose ObjectId of the recipient user
  * @param {string} title - Notification title
  * @param {string} body - Notification body
- * @param {object} [data] - Optional data payload
+ * @param {object} [data] - Optional data payload (must include type for pref check)
  */
 async function sendPushToUser(userId, title, body, data = {}) {
   if (!userId) return;
   try {
     const User = require('../models/User');
-    const user = await User.findById(userId).select('expoPushToken').lean();
-    if (user && user.expoPushToken) {
-      await sendExpoPush(user.expoPushToken, title, body, data);
+    const user = await User.findById(userId)
+      .select('expoPushToken notificationPreferences')
+      .lean();
+    if (!user || !user.expoPushToken) return;
+
+    const pushType = data && data.type;
+    const prefKey = pushType && TYPE_TO_PREF[pushType];
+    if (prefKey && user.notificationPreferences && user.notificationPreferences[prefKey] === false) {
+      return; // User disabled this notification type
     }
+
+    await sendExpoPush(user.expoPushToken, title, body, data);
   } catch (err) {
     console.warn('[push] sendPushToUser failed:', err.message);
   }

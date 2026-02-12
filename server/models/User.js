@@ -70,6 +70,21 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpires: { type: Date, default: null },
   /** Expo push token for sending push notifications (e.g. "ExponentPushToken[xxx]") */
   expoPushToken: { type: String, default: null },
+  /** Push notification preferences – server respects these before sending */
+  notificationPreferences: {
+    likes: { type: Boolean, default: true },
+    comments: { type: Boolean, default: true },
+    follow: { type: Boolean, default: true },
+    messages: { type: Boolean, default: true },
+    weeklySummary: { type: Boolean, default: true },
+    challenges: { type: Boolean, default: false },
+  },
+  /** Connected apps – connection state (tokens stored when OAuth is implemented) */
+  connectedApps: {
+    strava: { type: Boolean, default: false },
+    garmin: { type: Boolean, default: false },
+    appleHealth: { type: Boolean, default: false },
+  },
 }, {
   timestamps: true,
 });

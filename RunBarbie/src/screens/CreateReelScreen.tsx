@@ -14,6 +14,7 @@ import {
   Image,
   PanResponder,
   LayoutChangeEvent,
+  KeyboardAvoidingView,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,6 +24,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { ActivityType } from '../types';
 import { useUpload } from '../context/UploadContext';
 
@@ -38,6 +40,7 @@ const ACTIVITY_LABELS: Record<ActivityType, string> = {
 const CreateReelScreen: React.FC = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const { palette } = useTheme();
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [originalVideoUri, setOriginalVideoUri] = useState<string | null>(null);
@@ -250,6 +253,11 @@ const CreateReelScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerLeftBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Ionicons name="close" size={28} color="#000" />
@@ -260,7 +268,7 @@ const CreateReelScreen: React.FC = () => {
           disabled={!videoUri}
           style={styles.headerRightBtn}
         >
-          <Text style={[styles.postText, !videoUri && styles.postTextDisabled]}>
+          <Text style={[styles.postText, { color: videoUri ? palette.primary : '#ccc' }]}>
             Post
           </Text>
         </TouchableOpacity>
@@ -270,22 +278,26 @@ const CreateReelScreen: React.FC = () => {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        showsVerticalScrollIndicator={false}
       >
         <View style={styles.previewSection}>
           {videoUri ? (
-            <View style={[styles.previewWrap, { height: previewHeight }]}>
-              <ReelPreview 
-                uri={videoUri} 
-                onDurationCheck={(duration) => {
-                  setVideoDuration(duration);
-                  if (duration > 60 && !showTrimModal) {
-                    // Auto-trim: set to first 60 seconds, but show trim modal for user to adjust
-                    setTrimStartTime(0);
-                    setTrimEndTime(Math.min(60, duration));
-                    setShowTrimModal(true);
-                  }
-                }}
-              />
+            <>
+              <View style={[styles.previewWrap, { height: previewHeight }]}>
+                <ReelPreview 
+                  uri={videoUri} 
+                  onDurationCheck={(duration) => {
+                    setVideoDuration(duration);
+                    if (duration > 60 && !showTrimModal) {
+                      // Auto-trim: set to first 60 seconds, but show trim modal for user to adjust
+                      setTrimStartTime(0);
+                      setTrimEndTime(Math.min(60, duration));
+                      setShowTrimModal(true);
+                    }
+                  }}
+                  previewTime={videoDuration && videoDuration > 60 ? trimStartTime : undefined}
+                />
               {videoDuration !== null && videoDuration > 60 && (
                 <TouchableOpacity 
                   style={styles.trimBtn}
@@ -306,7 +318,15 @@ const CreateReelScreen: React.FC = () => {
                 <Ionicons name="swap-horizontal" size={20} color="#fff" />
                 <Text style={styles.changeVideoText}>Change video</Text>
               </TouchableOpacity>
-            </View>
+              </View>
+              {videoDuration !== null && videoDuration > 60 && (
+                <Text style={styles.trimInfoText}>
+                  Trimmed to{' '}
+                  {Math.max(0, Math.round(trimStartTime))}s – {Math.max(0, Math.round(trimEndTime))}s
+                  {' '}({Math.max(1, Math.round(trimEndTime - trimStartTime))}s)
+                </Text>
+              )}
+            </>
           ) : (
             <TouchableOpacity style={[styles.pickWrap, { height: previewHeight }]} onPress={pickVideo} activeOpacity={0.8}>
               <Ionicons name="videocam-outline" size={64} color="#999" />
@@ -328,12 +348,12 @@ const CreateReelScreen: React.FC = () => {
             maxLength={2200}
           />
           <TouchableOpacity
-            style={styles.generateButton}
+            style={[styles.generateButton, { borderColor: palette.primary }]}
             onPress={generateCaption}
             activeOpacity={0.85}
           >
-            <Ionicons name="sparkles" size={16} color="#FF69B4" style={{ marginRight: 6 }} />
-            <Text style={styles.generateButtonText}>Generate Caption</Text>
+            <Ionicons name="sparkles" size={16} color={palette.primary} style={{ marginRight: 6 }} />
+            <Text style={[styles.generateButtonText, { color: palette.primary }]}>Generate Caption</Text>
           </TouchableOpacity>
           <Text style={styles.charCount}>{caption.length}/2200</Text>
         </View>
@@ -344,7 +364,7 @@ const CreateReelScreen: React.FC = () => {
             {ACTIVITY_TYPES.map((type) => (
               <TouchableOpacity
                 key={type}
-                style={[styles.activityChip, activityType === type && styles.activityChipActive]}
+                style={[styles.activityChip, activityType === type && { backgroundColor: palette.primary, borderColor: palette.primary }]}
                 onPress={() => setActivityType(type)}
               >
                 <Text style={[styles.activityChipText, activityType === type && styles.activityChipTextActive]}>
@@ -355,6 +375,7 @@ const CreateReelScreen: React.FC = () => {
           </View>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Trim Modal */}
       <Modal
@@ -416,6 +437,7 @@ const VideoTrimEditor: React.FC<{
   onCancel: () => void;
 }> = ({ videoUri, duration, startTime, endTime, onStartTimeChange, onEndTimeChange, onConfirm, onCancel }) => {
   const { width: screenWidth } = useWindowDimensions();
+  const { palette } = useTheme();
   const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 60;
   const safeStart = Math.max(0, Math.min(Number(startTime) || 0, safeDuration - 1));
   const safeEnd = Math.max(safeStart + 1, Math.min(Number(endTime) || 60, safeDuration, safeStart + 60));
@@ -548,7 +570,7 @@ const VideoTrimEditor: React.FC<{
         <TouchableOpacity onPress={onCancel} style={styles.trimTikTokCancel}>
           <Text style={styles.trimTikTokCancelText}>Cancel</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => onConfirm(safeStart, safeEnd)} style={styles.trimTikTokNext}>
+        <TouchableOpacity onPress={() => onConfirm(safeStart, safeEnd)} style={[styles.trimTikTokNext, { backgroundColor: palette.primary }]}>
           <Text style={styles.trimTikTokNextText}>Next</Text>
         </TouchableOpacity>
       </View>
@@ -680,6 +702,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
+  flex: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -709,16 +734,12 @@ const styles = StyleSheet.create({
   postText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#0095f6',
-  },
-  postTextDisabled: {
-    color: '#ccc',
   },
   scroll: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 32,
+    paddingBottom: 120,
   },
   previewSection: {
     padding: 16,
@@ -729,6 +750,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#000',
     position: 'relative',
+  },
+  trimInfoText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
   },
   changeVideoBtn: {
     position: 'absolute',
@@ -926,7 +953,6 @@ const styles = StyleSheet.create({
   trimTikTokNext: {
     paddingVertical: 12,
     paddingHorizontal: 20,
-    backgroundColor: '#fe2c55',
     borderRadius: 8,
   },
   trimTikTokNextText: {
@@ -1034,7 +1060,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: 8,
-    backgroundColor: '#0095f6',
     alignItems: 'center',
   },
   trimConfirmText: {
@@ -1072,13 +1097,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#FF69B4',
-    backgroundColor: '#FFF5FC',
   },
   generateButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#FF69B4',
   },
   charCount: {
     fontSize: 12,
@@ -1098,11 +1120,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
   },
-  activityChipActive: {
-    backgroundColor: '#0095f6',
-  },
+  activityChipActive: {},
   activityChipText: {
     fontSize: 14,
     fontWeight: '500',

@@ -15,6 +15,7 @@ import {
   ScrollView,
   TextInput,
   PanResponder,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Post } from '../types';
@@ -24,6 +25,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { FeedStackParamList } from '../navigation/types';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
 import { postService, userService } from '../services/api';
 import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
 import ConfirmModal from './ConfirmModal';
@@ -46,7 +48,7 @@ const MAX_SCALE = 3;
 const DOUBLE_TAP_DELAY = 300;
 
 const ACTIVITY_CONFIG: Record<string, { icon: keyof typeof MaterialCommunityIcons.glyphMap; color: string; label: string }> = {
-  run: { icon: 'run-fast', color: '#FF69B4', label: 'Run' },
+  run: { icon: 'run-fast', color: '#FF69B4', label: 'Run' }, // overridden by theme when rendering
   hike: { icon: 'hiking', color: '#2E7D32', label: 'Hike' },
   cycle: { icon: 'bike', color: '#1565C0', label: 'Cycle' },
   walk: { icon: 'walk', color: '#6A1B9A', label: 'Walk' },
@@ -113,38 +115,9 @@ const ZoomableImage: React.FC<{
   }, [scale, translateX, translateY]);
 
   const handleDoubleTap = useCallback(() => {
-    const now = Date.now();
-    if (now - lastTap.current < DOUBLE_TAP_DELAY) {
-      lastTap.current = 0;
-      if (onDoubleTap) {
-        onDoubleTap();
-      }
-      if (isZoomed.current) {
-        resetZoom();
-      } else {
-        isZoomed.current = true;
-        lastScale.current = 2;
-        // Cancel any ongoing animation
-        if (scaleAnimation.current) {
-          scaleAnimation.current.stop();
-        }
-        scaleAnimation.current = Animated.spring(scale, {
-          toValue: 2,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 8,
-        });
-        scaleAnimation.current.start(() => {
-          scaleAnimation.current = null;
-        });
-      }
-    } else {
-      lastTap.current = now;
-      if (!isZoomed.current) {
-        onPress();
-      }
-    }
-  }, [onPress, onDoubleTap, resetZoom, scale]);
+    // Double tap is disabled (no zoom / like)
+    onPress();
+  }, [onPress]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -248,6 +221,7 @@ const ZoomableImage: React.FC<{
  * PostCard - Instagram-style post with activity badge, timestamp, double-tap like, comment count, shadow
  */
 const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved: savedProp = false, onBookmark, onHidePost, onMuteUser, onDelete }) => {
+  const { palette } = useTheme();
   const imageUrls = (post.images && post.images.length > 0) ? post.images : [post.image];
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [showHeart, setShowHeart] = useState(false);
@@ -305,7 +279,8 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
 
   const totalImages = imageUrls.length;
   const showCarouselIndicator = totalImages > 1;
-  const activityConfig = ACTIVITY_CONFIG[post.activityType] || ACTIVITY_CONFIG.other;
+  const baseConfig = ACTIVITY_CONFIG[post.activityType] || ACTIVITY_CONFIG.other;
+  const activityConfig = post.activityType === 'run' ? { ...baseConfig, color: palette.primary } : baseConfig;
   const commentCount = post.commentCount ?? 0;
 
   const handleImagePress = () => {
@@ -530,10 +505,6 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
                   uri={uri}
                   style={[styles.image, { width: SCREEN_WIDTH, height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
                   onPress={handleImagePress}
-                  onDoubleTap={() => {
-                    handleImagePress();
-                    onLike(post._id);
-                  }}
                 />
               </View>
             ))}
@@ -543,10 +514,6 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
             uri={imageUrls[0]}
             style={[styles.image, { height: SCREEN_WIDTH * IMAGE_ASPECT_RATIO }]}
             onPress={handleImagePress}
-            onDoubleTap={() => {
-              handleImagePress();
-              onLike(post._id);
-            }}
           />
         )}
         {showHeart && (
@@ -560,7 +527,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
             ]}
             pointerEvents="none"
           >
-            <Ionicons name="heart" size={80} color="#FF69B4" />
+            <Ionicons name="heart" size={80} color={palette.primary} />
           </Animated.View>
         )}
         {showCarouselIndicator && (
@@ -579,7 +546,7 @@ const PostCard: React.FC<PostCardProps> = ({ post, onLike, currentUserId, saved:
             <Ionicons
               name={isLiked ? 'heart' : 'heart-outline'}
               size={24}
-              color={isLiked ? '#FF69B4' : '#000'}
+              color={isLiked ? palette.primary : '#000'}
             />
           </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={handleOpenComments}>

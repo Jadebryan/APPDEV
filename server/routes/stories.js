@@ -2,6 +2,7 @@ const express = require('express');
 const Story = require('../models/Story');
 const Notification = require('../models/Notification');
 const authMiddleware = require('../middleware/auth');
+const { hasRecentDuplicateNotification } = require('../utils/notifications');
 
 const router = express.Router();
 
@@ -117,6 +118,44 @@ router.post('/:id/view', authMiddleware, async (req, res) => {
       $addToSet: { viewers: req.user._id },
     });
 
+    // Notify story owner about the view (best-effort, deduped)
+    try {
+      const viewerId = req.user._id;
+      const ownerId = story.userId;
+      if (ownerId.toString() !== viewerId.toString()) {
+        const isDuplicate = await hasRecentDuplicateNotification(
+          Notification,
+          {
+            toUserId: ownerId,
+            fromUserId: viewerId,
+            type: 'story_view',
+            storyId: story._id,
+          },
+          5 * 60 * 1000 // 5 minutes
+        );
+
+        if (!isDuplicate) {
+          await Notification.create({
+            toUserId: ownerId,
+            fromUserId: viewerId,
+            type: 'story_view',
+            storyId: story._id,
+          }).catch(() => {});
+
+          try {
+            const io = req.app.get('io');
+            if (io) {
+              io.to(`user:${ownerId.toString()}`).emit('notification:new', {});
+            }
+          } catch (_e) {
+            // ignore
+          }
+        }
+      }
+    } catch (_e) {
+      // notifications are best-effort
+    }
+
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -170,6 +209,7 @@ router.post('/:id/like', authMiddleware, async (req, res) => {
           toUserId: story.userId,
           fromUserId: req.user._id,
           type: 'story_like',
+          storyId: story._id,
         }).catch(() => {});
         try {
           const io = req.app.get('io');

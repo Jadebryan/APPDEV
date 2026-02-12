@@ -22,11 +22,13 @@ import { Message } from '../types';
 import { chatService } from '../services/api';
 import { getTimeAgo } from '../utils/timeAgo';
 import { ChatsStackParamList } from '../navigation/types';
+import { useTheme } from '../context/ThemeContext';
 
 type Nav = NativeStackNavigationProp<ChatsStackParamList, 'ChatDetail'>;
 type Route = RouteProp<ChatsStackParamList, 'ChatDetail'>;
 
 const ChatDetailScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const { conversationId, otherUser } = route.params;
@@ -168,7 +170,7 @@ const ChatDetailScreen: React.FC = () => {
     return (
       <View style={[styles.messageRow, isMe ? styles.messageRowMe : styles.messageRowThem]}>
         <TouchableOpacity
-          style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}
+          style={[styles.bubble, isMe ? [styles.bubbleMe, { backgroundColor: palette.primary }] : styles.bubbleThem]}
           activeOpacity={1}
           onLongPress={() => setReplyingToMessage(msg)}
           delayLongPress={400}
@@ -285,9 +287,9 @@ const ChatDetailScreen: React.FC = () => {
         {replyingToMessage && (
           <View style={styles.replyBar}>
             <View style={styles.replyBarContent}>
-              <View style={styles.replyBarIndicator} />
+              <View style={[styles.replyBarIndicator, { backgroundColor: palette.primary }]} />
               <View style={styles.replyBarTextWrap}>
-                <Text style={styles.replyBarLabel} numberOfLines={1}>
+                <Text style={[styles.replyBarLabel, { color: palette.primary }]} numberOfLines={1}>
                   Replying to {replyingToMessage.senderId === currentUser?._id ? 'yourself' : otherUser.username}
                 </Text>
                 <Text style={styles.replyBarSnippet} numberOfLines={1}>
@@ -322,7 +324,7 @@ const ChatDetailScreen: React.FC = () => {
             onPress={sendMessage}
             disabled={!inputText.trim() || sending}
           >
-            <Ionicons name="send" size={22} color={inputText.trim() && !sending ? '#0095f6' : '#ccc'} />
+            <Ionicons name="send" size={22} color={inputText.trim() && !sending ? palette.primary : '#ccc'} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

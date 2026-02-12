@@ -13,7 +13,18 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['like', 'comment', 'follow', 'reel_like', 'mention', 'tag', 'story_like', 'story_reply'],
+    enum: [
+      'like',
+      'comment',
+      'follow',
+      'reel_like',
+      'mention',
+      'tag',
+      'story_like',
+      'story_reply',
+      'profile_view',
+      'story_view',
+    ],
     required: true,
   },
   postId: {
@@ -29,6 +40,11 @@ const notificationSchema = new mongoose.Schema({
   commentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Comment',
+    default: null,
+  },
+  storyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Story',
     default: null,
   },
   /** For comment type, optional preview text */

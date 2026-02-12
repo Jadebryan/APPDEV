@@ -364,6 +364,40 @@ const realUserService = {
     const response = await api.patch('/users/me/push-token', { expoPushToken });
     return response.data;
   },
+
+  getNotificationPreferences: async (): Promise<{
+    likes: boolean;
+    comments: boolean;
+    follow: boolean;
+    messages: boolean;
+    weeklySummary: boolean;
+    challenges: boolean;
+  }> => {
+    const response = await api.get('/users/me/notification-preferences');
+    return response.data;
+  },
+
+  updateNotificationPreferences: async (prefs: {
+    likes?: boolean;
+    comments?: boolean;
+    follow?: boolean;
+    messages?: boolean;
+    weeklySummary?: boolean;
+    challenges?: boolean;
+  }) => {
+    const response = await api.patch('/users/me/notification-preferences', prefs);
+    return response.data;
+  },
+
+  getConnectedApps: async (): Promise<{ strava: boolean; garmin: boolean; appleHealth: boolean }> => {
+    const response = await api.get('/users/me/connected-apps');
+    return response.data;
+  },
+
+  updateConnectedApps: async (apps: { strava?: boolean; garmin?: boolean; appleHealth?: boolean }) => {
+    const response = await api.patch('/users/me/connected-apps', apps);
+    return response.data;
+  },
 };
 
 // Real search (users/tags from API; Facebook trail events when token provided; recent searches from storage)
@@ -488,17 +522,16 @@ export const uploadService = {
   /** 5 min timeout for large reels; optional onProgress(0–100) for UI. Optional trim params for video trimming. */
   uploadVideo: async (videoUri: string, onProgress?: (percent: number) => void, trimParams?: { startTime: number; endTime: number }): Promise<string> => {
     const formData = new FormData();
+    // Append trim params FIRST so busboy parses them before the file
+    if (trimParams) {
+      formData.append('trimStartTime', trimParams.startTime.toString());
+      formData.append('trimEndTime', trimParams.endTime.toString());
+    }
     formData.append('video', {
       uri: videoUri,
       type: 'video/mp4',
       name: 'video.mp4',
     } as unknown as Blob);
-    
-    // Add trim parameters if provided
-    if (trimParams) {
-      formData.append('trimStartTime', trimParams.startTime.toString());
-      formData.append('trimEndTime', trimParams.endTime.toString());
-    }
     
     const token = await storage.getToken();
     const VIDEO_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -627,7 +660,17 @@ export const storyService = {
 // Notifications API (auth required)
 export interface NotificationApi {
   id: string;
-  type: 'like' | 'comment' | 'follow' | 'reel_like' | 'mention' | 'tag' | 'story_like' | 'story_reply';
+  type:
+    | 'like'
+    | 'comment'
+    | 'follow'
+    | 'reel_like'
+    | 'mention'
+    | 'tag'
+    | 'story_like'
+    | 'story_reply'
+    | 'profile_view'
+    | 'story_view';
   username: string;
   avatar?: string;
   userId?: string;
@@ -637,6 +680,8 @@ export interface NotificationApi {
   postId?: string;
   postImage?: string;
   reelId?: string;
+  storyId?: string;
+  storyImage?: string;
 }
 
 export const notificationService = {
@@ -649,6 +694,41 @@ export const notificationService = {
   },
   markAllAsRead: async (): Promise<void> => {
     await api.patch('/notifications/read-all');
+  },
+};
+
+export interface RunHistoryItem {
+  id: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  distanceKm: number;
+  durationSeconds: number;
+  path: { lat: number; lng: number; timestamp?: string }[];
+  sosTriggeredAt: string | null;
+}
+
+export const runService = {
+  startRun: async (shareLiveLocation: boolean, emergencyContact: string): Promise<{ runId: string; startedAt: string }> => {
+    const res = await api.post('/runs/start', { shareLiveLocation, emergencyContact });
+    return res.data;
+  },
+  updateLocation: async (runId: string, lat: number, lng: number): Promise<void> => {
+    await api.patch(`/runs/${runId}/location`, { lat, lng });
+  },
+  endRun: async (runId: string, distanceKm: number, durationSeconds: number): Promise<void> => {
+    await api.patch(`/runs/${runId}/end`, { distanceKm, durationSeconds });
+  },
+  triggerSos: async (runId: string): Promise<{ emergencyContact: string; mapsUrl: string; username: string }> => {
+    const res = await api.post(`/runs/${runId}/sos`);
+    return res.data;
+  },
+  getLiveLocation: async (userId: string): Promise<{ active: boolean; lat?: number; lng?: number }> => {
+    const res = await api.get(`/runs/live/${userId}`);
+    return res.data;
+  },
+  getRunHistory: async (limit?: number): Promise<{ runs: RunHistoryItem[] }> => {
+    const res = await api.get<{ runs: RunHistoryItem[] }>('/runs/history', limit ? { params: { limit } } : undefined);
+    return res.data;
   },
 };
 

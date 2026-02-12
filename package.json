@@ -4,6 +4,7 @@
   "description": "Run Barbie app + server monorepo",
   "scripts": {
     "start": "cd RunBarbie && npm start",
-    "start:server": "cd server && node index.js"
+    "start:server": "cd server && node index.js",
+    "android": "cd RunBarbie && npm run android"
   }
 }

@@ -6,8 +6,10 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
 import { ProfileStackParamList } from '../navigation/types';
 import { storage } from '../utils/storage';
+import { PALETTES, type PaletteId } from '../theme/palettes';
 
 type Nav = NativeStackNavigationProp<ProfileStackParamList, 'ProfileMenu'>;
 
@@ -19,13 +21,21 @@ const ProfileMenuScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const { logout } = useAuth();
   const { showToast } = useToast();
+  const { palette, paletteId, setPaletteId } = useTheme();
   const [distanceUnit, setDistanceUnit] = useState<DistanceUnit>('km');
   const [distanceModalVisible, setDistanceModalVisible] = useState(false);
+  const [paletteModalVisible, setPaletteModalVisible] = useState(false);
   const [aboutModalVisible, setAboutModalVisible] = useState(false);
 
   useEffect(() => {
     storage.getDistanceUnits().then(setDistanceUnit);
   }, []);
+
+  const applyPalette = async (id: PaletteId) => {
+    await setPaletteId(id);
+    setPaletteModalVisible(false);
+    showToast(`Palette: ${PALETTES[id].name}`, 'success');
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -57,6 +67,17 @@ const ProfileMenuScreen: React.FC = () => {
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
 
+        {/* Appearance */}
+        <Text style={styles.sectionTitle}>Appearance</Text>
+        <TouchableOpacity style={styles.row} onPress={() => setPaletteModalVisible(true)} activeOpacity={0.7}>
+          <View style={[styles.palettePreview, { backgroundColor: palette.primary }]} />
+          <View style={styles.rowLabelWrap}>
+            <Text style={styles.rowText}>Color palette</Text>
+            <Text style={styles.rowSubtext}>{palette.name}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#999" />
+        </TouchableOpacity>
+
         {/* Activity & units – runners, hikers, trail runners */}
         <Text style={styles.sectionTitle}>Activity & units</Text>
         <TouchableOpacity style={styles.row} onPress={() => setDistanceModalVisible(true)} activeOpacity={0.7}>
@@ -84,8 +105,8 @@ const ProfileMenuScreen: React.FC = () => {
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('SafetySettings')} activeOpacity={0.7}>
-          <Ionicons name="location-outline" size={22} color="#000" />
-          <Text style={styles.rowText}>Safety & live location</Text>
+          <Ionicons name="shield-checkmark-outline" size={22} color="#000" />
+          <Text style={styles.rowText}>Safety & Wellness</Text>
           <Ionicons name="chevron-forward" size={20} color="#999" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('HelpFeedback')} activeOpacity={0.7}>
@@ -108,6 +129,60 @@ const ProfileMenuScreen: React.FC = () => {
         </TouchableOpacity>
       </ScrollView>
 
+      {/* Color palette modal */}
+      <Modal
+        visible={paletteModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPaletteModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setPaletteModalVisible(false)}
+        >
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Color palette</Text>
+            <Text style={styles.modalSubtitle}>Choose your app accent colors</Text>
+            {(Object.keys(PALETTES) as PaletteId[]).map((id) => (
+              <TouchableOpacity
+                key={id}
+                style={[
+                  styles.optionRow,
+                  paletteId === id && { backgroundColor: PALETTES[id].primaryLight, borderColor: PALETTES[id].primaryLight },
+                ]}
+                onPress={() => applyPalette(id)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.paletteSwatches}>
+                  <View style={[styles.paletteSwatch, { backgroundColor: PALETTES[id].primary }]} />
+                  <View style={[styles.paletteSwatch, { backgroundColor: PALETTES[id].secondary }]} />
+                </View>
+                <Text
+                  style={[
+                    styles.optionText,
+                    paletteId === id && { color: PALETTES[id].primary, fontWeight: '600' as const },
+                  ]}
+                >
+                  {PALETTES[id].name}
+                </Text>
+                {paletteId === id && (
+                  <Ionicons name="checkmark-circle" size={24} color={PALETTES[id].primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.modalCancelBtn}
+              onPress={() => setPaletteModalVisible(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Distance units modal */}
       <Modal
         visible={distanceModalVisible}
@@ -125,29 +200,29 @@ const ProfileMenuScreen: React.FC = () => {
             <Text style={styles.modalTitle}>Distance units</Text>
             <Text style={styles.modalSubtitle}>Show distances in runs and activities</Text>
             <TouchableOpacity
-              style={[styles.optionRow, distanceUnit === 'km' && styles.optionRowSelected]}
+              style={[styles.optionRow, distanceUnit === 'km' && [styles.optionRowSelected, { backgroundColor: palette.primaryLight, borderColor: palette.primaryLight }]]}
               onPress={() => applyUnit('km')}
               activeOpacity={0.7}
             >
-              <Ionicons name="resize-outline" size={22} color={distanceUnit === 'km' ? '#0095f6' : '#666'} />
-              <Text style={[styles.optionText, distanceUnit === 'km' && styles.optionTextSelected]}>
+              <Ionicons name="resize-outline" size={22} color={distanceUnit === 'km' ? palette.primary : '#666'} />
+              <Text style={[styles.optionText, distanceUnit === 'km' && { color: palette.primary, fontWeight: '600' }]}>
                 Kilometres (km)
               </Text>
               {distanceUnit === 'km' && (
-                <Ionicons name="checkmark-circle" size={24} color="#0095f6" />
+                <Ionicons name="checkmark-circle" size={24} color={palette.primary} />
               )}
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.optionRow, distanceUnit === 'miles' && styles.optionRowSelected]}
+              style={[styles.optionRow, distanceUnit === 'miles' && [styles.optionRowSelected, { backgroundColor: palette.primaryLight, borderColor: palette.primaryLight }]]}
               onPress={() => applyUnit('miles')}
               activeOpacity={0.7}
             >
-              <Ionicons name="resize-outline" size={22} color={distanceUnit === 'miles' ? '#0095f6' : '#666'} />
-              <Text style={[styles.optionText, distanceUnit === 'miles' && styles.optionTextSelected]}>
+              <Ionicons name="resize-outline" size={22} color={distanceUnit === 'miles' ? palette.primary : '#666'} />
+              <Text style={[styles.optionText, distanceUnit === 'miles' && { color: palette.primary, fontWeight: '600' }]}>
                 Miles (mi)
               </Text>
               {distanceUnit === 'miles' && (
-                <Ionicons name="checkmark-circle" size={24} color="#0095f6" />
+                <Ionicons name="checkmark-circle" size={24} color={palette.primary} />
               )}
             </TouchableOpacity>
             <TouchableOpacity
@@ -169,22 +244,25 @@ const ProfileMenuScreen: React.FC = () => {
         onRequestClose={() => setAboutModalVisible(false)}
       >
         <TouchableOpacity
-          style={styles.aboutModalOverlay}
+          style={styles.modalOverlay}
           activeOpacity={1}
           onPress={() => setAboutModalVisible(false)}
         >
-          <View style={styles.aboutModalContent} onStartShouldSetResponder={() => true}>
-            <View style={styles.aboutIconWrap}>
-              <Ionicons name="footsteps" size={40} color="#0095f6" />
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHandle} />
+            <View style={styles.aboutContent}>
+              <View style={[styles.aboutIconWrap, { backgroundColor: palette.primaryLight }]}>
+                <Ionicons name="footsteps" size={40} color={palette.primary} />
+              </View>
+              <Text style={[styles.modalTitle, { textAlign: 'center' }]}>RunBarbie</Text>
+              <Text style={[styles.modalSubtitle, { textAlign: 'center' }]}>Your trail running community</Text>
+              <Text style={styles.aboutVersion}>Version {APP_VERSION}</Text>
+              <Text style={styles.aboutDesc}>
+                Share runs, discover events, and stay motivated with runners and hikers.
+              </Text>
             </View>
-            <Text style={styles.aboutAppName}>RunBarbie</Text>
-            <Text style={styles.aboutTagline}>Your trail running community</Text>
-            <Text style={styles.aboutVersion}>Version {APP_VERSION}</Text>
-            <Text style={styles.aboutDesc}>
-              Share runs, discover events, and stay motivated with runners and hikers.
-            </Text>
             <TouchableOpacity
-              style={styles.aboutDoneBtn}
+              style={[styles.modalCancelBtn, styles.aboutDoneBtn, { backgroundColor: palette.primary }]}
               onPress={() => setAboutModalVisible(false)}
               activeOpacity={0.8}
             >
@@ -252,6 +330,20 @@ const styles = StyleSheet.create({
   rowLabelWrap: {
     flex: 1,
   },
+  palettePreview: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  paletteSwatches: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  paletteSwatch: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
   rowText: {
     flex: 1,
     fontSize: 16,
@@ -313,11 +405,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 8,
     gap: 12,
-    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
   },
-  optionRowSelected: {
-    backgroundColor: '#E8F4FD',
-  },
+  optionRowSelected: {},
   optionText: {
     flex: 1,
     fontSize: 16,
@@ -325,7 +416,6 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   optionTextSelected: {
-    color: '#0095f6',
     fontWeight: '600',
   },
   modalCancelBtn: {
@@ -338,62 +428,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#666',
   },
-  aboutModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
+  aboutContent: {
     alignItems: 'center',
-    padding: 24,
-  },
-  aboutModalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    paddingHorizontal: 28,
-    paddingTop: 32,
-    paddingBottom: 28,
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 340,
+    marginBottom: 8,
   },
   aboutIconWrap: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#E8F4FD',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
   },
-  aboutAppName: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 4,
-  },
-  aboutTagline: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 8,
-  },
   aboutVersion: {
     fontSize: 13,
     color: '#999',
-    marginBottom: 16,
+    marginBottom: 12,
+    textAlign: 'center',
   },
   aboutDesc: {
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   aboutDoneBtn: {
-    backgroundColor: '#0095f6',
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 12,
     width: '100%',
     alignItems: 'center',
+    borderRadius: 12,
   },
   aboutDoneText: {
     fontSize: 16,

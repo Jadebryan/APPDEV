@@ -1,9 +1,19 @@
 import React, { createContext, useState, useCallback, useContext, useEffect } from 'react';
-import { notificationService } from '../services/api';
+import { notificationService, type NotificationApi } from '../services/api';
 import { useAuth } from './AuthContext';
 import { useRealtime } from './RealtimeContext';
 
-export type NotificationType = 'like' | 'comment' | 'follow' | 'reel_like' | 'mention' | 'tag';
+export type NotificationType =
+  | 'like'
+  | 'comment'
+  | 'follow'
+  | 'reel_like'
+  | 'mention'
+  | 'tag'
+  | 'story_like'
+  | 'story_reply'
+  | 'profile_view'
+  | 'story_view';
 
 export interface NotificationItem {
   id: string;
@@ -18,6 +28,8 @@ export interface NotificationItem {
   postImage?: string;
   postId?: string;
   reelId?: string;
+  storyId?: string;
+  storyImage?: string;
 }
 
 function updateTimeAgo(ts: number): string {
@@ -31,7 +43,7 @@ function updateTimeAgo(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-function mapApiToItem(api: { id: string; type: NotificationType; username: string; avatar?: string; userId?: string; text: string; timestamp: number; read: boolean; postId?: string; postImage?: string; reelId?: string }): NotificationItem {
+function mapApiToItem(api: NotificationApi): NotificationItem {
   return {
     id: api.id,
     type: api.type,
@@ -45,6 +57,8 @@ function mapApiToItem(api: { id: string; type: NotificationType; username: strin
     postId: api.postId,
     postImage: api.postImage,
     reelId: api.reelId,
+    storyId: api.storyId,
+    storyImage: api.storyImage,
   };
 }
 

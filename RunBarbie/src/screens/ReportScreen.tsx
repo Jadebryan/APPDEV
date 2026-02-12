@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FeedStackParamList } from '../navigation/types';
 import { postService } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
 
 type ReportRoute = RouteProp<FeedStackParamList, 'Report'>;
 
@@ -26,6 +27,7 @@ const REPORT_REASONS = [
 ] as const;
 
 const ReportScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<ReportRoute>();
   const { postId } = route.params;
@@ -66,8 +68,8 @@ const ReportScreen: React.FC = () => {
             onPress={() => setReason(r.value)}
             activeOpacity={0.8}
           >
-            <View style={[styles.radio, reason === r.value && styles.radioSelected]}>
-              {reason === r.value && <View style={styles.radioDot} />}
+            <View style={[styles.radio, reason === r.value && [styles.radioSelected, { borderColor: palette.primary }]]}>
+              {reason === r.value && <View style={[styles.radioDot, { backgroundColor: palette.primary }]} />}
             </View>
             <Text style={styles.optionText}>{r.label}</Text>
           </TouchableOpacity>
@@ -85,7 +87,7 @@ const ReportScreen: React.FC = () => {
         />
 
         <TouchableOpacity
-          style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
+          style={[styles.submitBtn, { backgroundColor: palette.primary }, submitting && styles.submitBtnDisabled]}
           onPress={handleSubmit}
           disabled={submitting}
           activeOpacity={0.8}

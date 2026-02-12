@@ -10,9 +10,10 @@ export type RootStackParamList = {
 };
 
 export type FeedStackParamList = {
-  FeedHome: { tag?: string };
+  FeedHome: { tag?: string; initialStoryUserId?: string; initialStoryId?: string };
   CreatePost: undefined;
   Notifications: undefined;
+  ActiveRun: { runId: string };
   StoryCapture: undefined;
   Comments: {
     postId: string;
@@ -66,6 +67,8 @@ export type ProfileStackParamList = {
   ProfileVisitors: undefined;
   NotificationsSettings: undefined;
   SafetySettings: undefined;
+  StartRun: undefined;
+  RunHistory: undefined;
   ConnectedApps: undefined;
   HelpFeedback: undefined;
 };

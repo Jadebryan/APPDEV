@@ -2,6 +2,9 @@ const express = require('express');
 const multer = require('multer');
 const busboy = require('busboy');
 const sharp = require('sharp');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const cloudinary = require('../utils/cloudinary');
 const authMiddleware = require('../middleware/auth');
 
@@ -20,6 +23,7 @@ async function resizeImageForUpload(base64DataUri) {
     const base64 = match ? match[2] : base64DataUri;
     const buffer = Buffer.from(base64, 'base64');
     const resized = await sharp(buffer)
+      .rotate() // Apply EXIF orientation (fixes landscape photos from phone cameras)
       .resize(MAX_WIDTH, null, { withoutEnlargement: true })
       .jpeg({ quality: JPEG_QUALITY })
       .toBuffer();
@@ -91,41 +95,57 @@ router.post('/video', authMiddleware, (req, res) => {
       return;
     }
     videoReceived = true;
-    
-    // Build Cloudinary upload options
+
     const uploadOptions = {
       folder: 'runbarbie/reels',
       resource_type: 'video',
     };
-
-    // If trim parameters are provided, add video transformation using eager
-    // This creates a trimmed version during upload
-    if (trimStartTime !== null && trimEndTime !== null && trimEndTime > trimStartTime) {
-      const duration = trimEndTime - trimStartTime;
-      // Cloudinary video transformation: so_ (start offset) and du_ (duration)
-      uploadOptions.eager = [
-        {
-          start_offset: trimStartTime,
-          duration: duration,
-        }
-      ];
-      // Also set eager_async to false to wait for transformation
+    const useTrim = trimStartTime !== null && trimEndTime !== null && trimEndTime > trimStartTime;
+    if (useTrim) {
+      const startSec = Math.round(trimStartTime);
+      const endSec = Math.round(trimEndTime);
+      // Cloudinary: offset.start and offset.end for video trim
+      uploadOptions.eager = [{ offset: { start: startSec, end: endSec } }];
       uploadOptions.eager_async = false;
     }
 
-    const uploadStream = cloudinary.uploader.upload_stream(
-      uploadOptions,
-      (err, result) => {
-        if (err) return finish(err);
-        // If trimming was applied, use the eager transformation URL
-        // Otherwise use the original URL
-        const finalUrl = result.eager && result.eager.length > 0 
-          ? result.eager[0].secure_url 
-          : result.secure_url;
-        finish(null, finalUrl);
-      }
-    );
-    file.pipe(uploadStream);
+    // upload_stream does NOT support eager transformations.
+    // When trimming, stream to temp file then use upload() which supports eager.
+    if (useTrim) {
+      const tmpPath = path.join(os.tmpdir(), `reel-${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`);
+      const writeStream = fs.createWriteStream(tmpPath);
+      file.pipe(writeStream);
+      writeStream.on('finish', async () => {
+        try {
+          const result = await cloudinary.uploader.upload(tmpPath, uploadOptions);
+          fs.unlink(tmpPath, () => {});
+          const finalUrl = result.eager && result.eager.length > 0
+            ? result.eager[0].secure_url
+            : result.secure_url;
+          finish(null, finalUrl);
+        } catch (err) {
+          try { fs.unlinkSync(tmpPath); } catch (_) {}
+          finish(err);
+        }
+      });
+      writeStream.on('error', (err) => {
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        finish(err);
+      });
+      file.on('error', (err) => {
+        try { fs.unlinkSync(tmpPath); } catch (_) {}
+        finish(err);
+      });
+    } else {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        uploadOptions,
+        (err, result) => {
+          if (err) return finish(err);
+          finish(null, result.secure_url);
+        }
+      );
+      file.pipe(uploadStream);
+    }
   });
 
   bb.on('error', (err) => finish(err));

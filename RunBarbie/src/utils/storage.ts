@@ -8,8 +8,10 @@ const REMEMBER_EMAIL_KEY = 'remember_email';
 const REMEMBER_ME_KEY = 'remember_me';
 const NOTIFICATIONS_SETTINGS_KEY = 'notifications_settings';
 const SAFETY_SETTINGS_KEY = 'safety_settings';
+const CYCLE_SETTINGS_KEY = 'cycle_settings';
 const CONNECTED_APPS_KEY = 'connected_apps';
 const RECENT_SEARCHES_KEY = 'recent_searches';
+const COLOR_PALETTE_KEY = 'color_palette';
 
 export type NotificationsSettings = {
   likes: boolean;
@@ -21,6 +23,16 @@ export type NotificationsSettings = {
 export type SafetySettings = {
   shareLiveLocation: boolean;
   emergencyContact: string;
+  emergencySosEnabled: boolean;
+  safeRouteSuggestions: boolean;
+  sunHeatAlerts: boolean;
+  menstrualCycleAware: boolean;
+};
+
+export type CycleSettings = {
+  lastPeriodStart: string; // ISO date
+  cycleLengthDays: number;
+  periodLengthDays?: number;
 };
 
 export type ConnectedAppsSettings = {
@@ -39,6 +51,10 @@ const DEFAULT_NOTIFICATIONS: NotificationsSettings = {
 const DEFAULT_SAFETY: SafetySettings = {
   shareLiveLocation: false,
   emergencyContact: '',
+  emergencySosEnabled: true,
+  safeRouteSuggestions: true,
+  sunHeatAlerts: true,
+  menstrualCycleAware: false,
 };
 
 const DEFAULT_CONNECTED_APPS: ConnectedAppsSettings = {
@@ -136,6 +152,20 @@ export const storage = {
     await AsyncStorage.setItem(SAFETY_SETTINGS_KEY, JSON.stringify(s));
   },
 
+  async getCycleSettings(): Promise<CycleSettings | null> {
+    const v = await AsyncStorage.getItem(CYCLE_SETTINGS_KEY);
+    if (!v) return null;
+    try {
+      return JSON.parse(v);
+    } catch {
+      return null;
+    }
+  },
+
+  async setCycleSettings(s: CycleSettings): Promise<void> {
+    await AsyncStorage.setItem(CYCLE_SETTINGS_KEY, JSON.stringify(s));
+  },
+
   async getConnectedApps(): Promise<ConnectedAppsSettings> {
     const v = await AsyncStorage.getItem(CONNECTED_APPS_KEY);
     if (!v) return { ...DEFAULT_CONNECTED_APPS };
@@ -163,5 +193,14 @@ export const storage = {
 
   async setRecentSearches(searches: string[]): Promise<void> {
     await AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches.slice(0, 20)));
+  },
+
+  async getColorPalette(): Promise<string> {
+    const v = await AsyncStorage.getItem(COLOR_PALETTE_KEY);
+    return v || 'run_barbie';
+  },
+
+  async setColorPalette(paletteId: string): Promise<void> {
+    await AsyncStorage.setItem(COLOR_PALETTE_KEY, paletteId);
   },
 };

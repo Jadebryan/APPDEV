@@ -21,10 +21,12 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { userService, uploadService } from '../services/api';
 import { ProfileStackParamList } from '../navigation/types';
+import { useTheme } from '../context/ThemeContext';
 
 type Route = RouteProp<ProfileStackParamList, 'EditProfile'>;
 
 const EditProfileScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<Route>();
   const { user, updateUser } = useAuth();
@@ -106,9 +108,9 @@ const EditProfileScreen: React.FC = () => {
         <Text style={styles.headerTitle}>Edit profile</Text>
         <TouchableOpacity onPress={handleSave} disabled={saving} style={styles.headerRightBtn}>
           {saving ? (
-            <ActivityIndicator size="small" color="#0095f6" />
+            <ActivityIndicator size="small" color={palette.primary} />
           ) : (
-            <Text style={styles.saveText}>Save</Text>
+            <Text style={[styles.saveText, { color: palette.primary }]}>Save</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -126,7 +128,7 @@ const EditProfileScreen: React.FC = () => {
                 <Ionicons name="person" size={48} color="#999" />
               </View>
             )}
-            <View style={styles.changePhotoBadge}>
+            <View style={[styles.changePhotoBadge, { backgroundColor: palette.primary }]}>
               <Ionicons name="camera" size={18} color="#fff" />
             </View>
           </TouchableOpacity>

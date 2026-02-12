@@ -11,11 +11,13 @@ import { ReelsStackParamList } from '../navigation/types';
 import { getTimeAgo } from '../utils/timeAgo';
 import { useToast } from '../context/ToastContext';
 import ConfirmModal from '../components/ConfirmModal';
+import { useTheme } from '../context/ThemeContext';
 
 type Nav = NativeStackNavigationProp<ReelsStackParamList, 'SavedReels'>;
 type SavedReelsRoute = RouteProp<ReelsStackParamList, 'SavedReels'>;
 
 const SavedReelsScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation<Nav>();
   const route = useRoute<SavedReelsRoute>();
   const { showToast } = useToast();
@@ -102,7 +104,7 @@ const SavedReelsScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#FF69B4" />
+          <ActivityIndicator size="large" color={palette.primary} />
         </View>
       ) : reels.length === 0 ? (
         <View style={styles.centered}>

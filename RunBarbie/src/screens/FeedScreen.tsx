@@ -25,6 +25,8 @@ import { postService, reelService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useRealtime } from '../context/RealtimeContext';
 import { useToast } from '../context/ToastContext';
+import { useTheme } from '../context/ThemeContext';
+import { useStories } from '../context/StoriesContext';
 import { FeedStackParamList } from '../navigation/types';
 import { formatDurationMinutes } from '../utils/formatDuration';
 import UploadProgressBar from '../components/UploadProgressBar';
@@ -51,6 +53,8 @@ type ActivityFilter = ActivityType | 'all';
 const FeedScreen: React.FC = () => {
   const route = useRoute<FeedHomeRoute>();
   const tagFromParams = route.params?.tag;
+  const initialStoryUserId = route.params?.initialStoryUserId;
+  const initialStoryId = route.params?.initialStoryId;
   const [posts, setPosts] = useState<Post[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,10 +68,41 @@ const FeedScreen: React.FC = () => {
   const { user, updateUser } = useAuth();
   const { subscribe } = useRealtime();
   const { showToast } = useToast();
+  const { palette } = useTheme();
+  const { pendingStoryOpen, setPendingStoryOpen } = useStories();
   const navigation = useNavigation<FeedScreenNav>();
   const savedPostIds = useMemo(() => new Set(user?.savedPosts ?? []), [user?.savedPosts]);
   const motivationalLine = MOTIVATIONAL_LINES[Math.floor(Math.random() * MOTIVATIONAL_LINES.length)];
   const listRef = useRef<FlatList<Post>>(null);
+  const [storyOpenRequest, setStoryOpenRequest] = useState<{
+    userId: string;
+    storyId?: string;
+    requestId: number;
+  } | null>(null);
+
+  // If we were asked (via navigation params) to open a specific story, store in state and scroll to top.
+  useEffect(() => {
+    if (!initialStoryUserId) return;
+    setStoryOpenRequest({
+      userId: initialStoryUserId,
+      storyId: initialStoryId,
+      requestId: Date.now(),
+    });
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    (navigation as any).setParams?.({ initialStoryUserId: undefined, initialStoryId: undefined });
+  }, [initialStoryUserId, initialStoryId, navigation]);
+
+  // Pending story from notification tap (context) – survives navigation timing
+  useEffect(() => {
+    if (!pendingStoryOpen) return;
+    setStoryOpenRequest({
+      userId: pendingStoryOpen.userId,
+      storyId: pendingStoryOpen.storyId,
+      requestId: Date.now(),
+    });
+    setPendingStoryOpen(null);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [pendingStoryOpen, setPendingStoryOpen]);
 
   useEffect(() => {
     loadPosts();
@@ -322,7 +357,16 @@ const FeedScreen: React.FC = () => {
 
   const SmartHeader = () => (
     <>
-      <StoriesSection />
+      <StoriesSection
+        openRequest={storyOpenRequest ?? undefined}
+        onConsumeOpenRequest={(requestId) => {
+          setStoryOpenRequest((prev) => {
+            if (!prev) return prev;
+            if (prev.requestId !== requestId) return prev;
+            return null;
+          });
+        }}
+      />
       <UploadProgressBar />
 
       {/* Smart summary card (personalized) */}
@@ -335,13 +379,13 @@ const FeedScreen: React.FC = () => {
           <View
             style={[
               styles.smartCta,
-              streakDays > 0 ? styles.smartCtaActive : styles.smartCtaInactive,
+              streakDays > 0 ? [styles.smartCtaActive, { backgroundColor: palette.primary }] : styles.smartCtaInactive,
             ]}
           >
             <Ionicons
               name="flame"
               size={14}
-              color={streakDays > 0 ? '#FFFFFF' : '#FF69B4'}
+              color={streakDays > 0 ? '#FFFFFF' : palette.primary}
             />
             <Text
               style={[
@@ -362,7 +406,7 @@ const FeedScreen: React.FC = () => {
 
       {tagFromParams ? (
         <View style={styles.tagFilterRow}>
-          <Text style={styles.tagFilterLabel}>Viewing #{tagFromParams}</Text>
+          <Text style={[styles.tagFilterLabel, { color: palette.primary }]}>Viewing #{tagFromParams}</Text>
           <TouchableOpacity
             style={styles.tagFilterClear}
             onPress={() => navigation.setParams({ tag: undefined })}
@@ -464,12 +508,12 @@ const FeedScreen: React.FC = () => {
   const EmptyState = () => (
     <View style={styles.emptyContainer}>
       <View style={styles.emptyIconWrap}>
-        <Ionicons name="footsteps-outline" size={56} color="#FF69B4" />
+        <Ionicons name="footsteps-outline" size={56} color={palette.primary} />
       </View>
       <Text style={styles.emptyTitle}>No posts yet</Text>
       <Text style={styles.emptySubtitle}>Share your first run or hike and inspire others.</Text>
       <TouchableOpacity
-        style={styles.emptyCta}
+        style={[styles.emptyCta, { backgroundColor: palette.primary }]}
         onPress={() => navigation.navigate('CreatePost')}
         activeOpacity={0.8}
       >
@@ -506,7 +550,7 @@ const FeedScreen: React.FC = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#FF69B4"
+            tintColor={palette.primary}
           />
         }
         ListEmptyComponent={<EmptyState />}
@@ -576,7 +620,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   smartCtaActive: {
-    backgroundColor: '#FF69B4',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
@@ -584,7 +627,6 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   smartCtaInactive: {
-    backgroundColor: '#F7F7F7',
     borderWidth: 1,
     borderColor: '#E0E0E0',
   },
@@ -607,7 +649,6 @@ const styles = StyleSheet.create({
   tagFilterLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#0095f6',
   },
   tagFilterClear: {
     padding: 4,
@@ -772,7 +813,6 @@ const styles = StyleSheet.create({
   emptyCta: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF69B4',
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 24,

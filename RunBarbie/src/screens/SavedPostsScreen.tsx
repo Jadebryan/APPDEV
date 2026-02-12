@@ -9,10 +9,12 @@ import { Post } from '../types';
 import { getTimeAgo } from '../utils/timeAgo';
 import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
+import { useTheme } from '../context/ThemeContext';
 
 type SavedPostsRoute = RouteProp<FeedStackParamList, 'SavedPosts'>;
 
 const SavedPostsScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<SavedPostsRoute>();
   const { showToast } = useToast();
@@ -91,7 +93,7 @@ const SavedPostsScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#FF69B4" />
+          <ActivityIndicator size="large" color={palette.primary} />
         </View>
       ) : posts.length === 0 ? (
         <View style={styles.centered}>

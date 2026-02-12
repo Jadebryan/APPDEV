@@ -21,10 +21,12 @@ import { Conversation, User } from '../types';
 import { chatService, searchService } from '../services/api';
 import { getTimeAgo } from '../utils/timeAgo';
 import { ChatsStackParamList } from '../navigation/types';
+import { useTheme } from '../context/ThemeContext';
 
 type Nav = NativeStackNavigationProp<ChatsStackParamList, 'ChatsList'>;
 
 const ChatsScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation<Nav>();
   const { subscribe } = useRealtime();
   const { showToast } = useToast();
@@ -137,7 +139,7 @@ const ChatsScreen: React.FC = () => {
             </View>
           )}
           {item.unreadCount > 0 && (
-            <View style={styles.unreadBadge}>
+            <View style={[styles.unreadBadge, { backgroundColor: palette.primary }]}>
               <Text style={styles.unreadText}>
                 {item.unreadCount > 99 ? '99+' : item.unreadCount}
               </Text>
@@ -268,7 +270,7 @@ const ChatsScreen: React.FC = () => {
                             ) : null}
                           </View>
                           <TouchableOpacity
-                            style={styles.messageBtn}
+                            style={[styles.messageBtn, { backgroundColor: palette.primary }]}
                             onPress={() => openChatWithUser(u)}
                             activeOpacity={0.7}
                           >

@@ -9,10 +9,12 @@ import { useToast } from '../context/ToastContext';
 import { FeedStackParamList } from '../navigation/types';
 import { formatDurationMinutes } from '../utils/formatDuration';
 import ConfirmModal from '../components/ConfirmModal';
+import { useTheme } from '../context/ThemeContext';
 
 type GoalsRoute = RouteProp<FeedStackParamList, 'Goals'>;
 
 const GoalsScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<GoalsRoute>();
   const { showToast } = useToast();
@@ -93,7 +95,7 @@ const GoalsScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#FF69B4" />
+          <ActivityIndicator size="large" color={palette.primary} />
         </View>
       ) : goals.length === 0 ? (
         <View style={styles.centered}>

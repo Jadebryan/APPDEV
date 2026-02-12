@@ -31,11 +31,13 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useStories } from '../context/StoriesContext';
 import { useUpload } from '../context/UploadContext';
+import { useTheme } from '../context/ThemeContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MAX_POST_PHOTOS = 10;
 
 const CreatePostScreen: React.FC = () => {
+  const { palette } = useTheme();
   const { showToast } = useToast();
   const [images, setImages] = useState<string[]>([]);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
@@ -879,7 +881,7 @@ const CreatePostScreen: React.FC = () => {
             <View style={styles.editModalContent}>
               <Text style={styles.editModalTitle}>Edit photo</Text>
               {editLoading ? (
-                <ActivityIndicator size="small" color="#0095F6" style={{ marginVertical: 16 }} />
+                <ActivityIndicator size="small" color={palette.primary} style={{ marginVertical: 16 }} />
               ) : (
                 <>
                   <TouchableOpacity style={styles.editOption} onPress={handleRotate90}>
@@ -926,7 +928,7 @@ const CreatePostScreen: React.FC = () => {
                 disabled={cropApplying}
               >
                 {cropApplying ? (
-                  <ActivityIndicator size="small" color="#0095F6" />
+                  <ActivityIndicator size="small" color={palette.primary} />
                 ) : (
                   <Text style={styles.cropHeaderDone}>Done</Text>
                 )}
@@ -1020,9 +1022,9 @@ const CreatePostScreen: React.FC = () => {
             activeOpacity={0.6}
           >
             {loading ? (
-              <ActivityIndicator color="#0095F6" size="small" />
+              <ActivityIndicator color={palette.primary} size="small" />
             ) : (
-              <Text style={styles.shareButton}>Share</Text>
+              <Text style={[styles.shareButton, { color: palette.primary }]}>Share</Text>
             )}
           </TouchableOpacity>
           <View style={styles.headerTitleWrap} pointerEvents="none">
@@ -1083,7 +1085,7 @@ const CreatePostScreen: React.FC = () => {
                   key={type}
                   style={[
                     styles.activityButton,
-                    activityType === type && styles.activityButtonActive,
+                    activityType === type && [styles.activityButtonActive, { backgroundColor: palette.primary, borderColor: palette.primary }],
                   ]}
                   onPress={() => setActivityType(type)}
                 >
@@ -1113,34 +1115,34 @@ const CreatePostScreen: React.FC = () => {
 
             {/* Generate Caption Button */}
             <TouchableOpacity
-              style={styles.generateButton}
+              style={[styles.generateButton, { borderColor: palette.primary, backgroundColor: palette.primaryLight }]}
               onPress={generateCaption}
               activeOpacity={0.85}
             >
-              <Ionicons name="sparkles" size={16} color="#FF69B4" style={{ marginRight: 6 }} />
-              <Text style={styles.generateButtonText}>Generate Caption</Text>
+              <Ionicons name="sparkles" size={16} color={palette.primary} style={{ marginRight: 6 }} />
+              <Text style={[styles.generateButtonText, { color: palette.primary }]}>Generate Caption</Text>
             </TouchableOpacity>
 
             {/* Add location / Pinned location */}
             <Text style={styles.editLabel}>Location</Text>
             {location ? (
               <View style={styles.locationRow}>
-                <Ionicons name="location" size={20} color="#0095F6" />
+                <Ionicons name="location" size={20} color={palette.primary} />
                 <Text style={styles.locationText} numberOfLines={1}>{location.name ?? 'Pinned location'}</Text>
                 <TouchableOpacity onPress={handleRemoveLocation} style={styles.removeLocationBtn} activeOpacity={0.7}>
-                  <Text style={styles.removeLocationText}>Remove</Text>
+                  <Text style={[styles.removeLocationText, { color: palette.primary }]}>Remove</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity
-                style={styles.addLocationButton}
+                style={[styles.addLocationButton, { borderColor: palette.primary }]}
                 onPress={openLocationModal}
                 disabled={locationLoading}
                 activeOpacity={0.85}
               >
                 <View style={styles.addLocationButtonContent}>
-                  <Ionicons name="location-outline" size={20} color="#0095F6" style={styles.addLocationIcon} />
-                  <Text style={styles.addLocationButtonText}>Add location (pin on map)</Text>
+                  <Ionicons name="location-outline" size={20} color={palette.primary} style={styles.addLocationIcon} />
+                  <Text style={[styles.addLocationButtonText, { color: palette.primary }]}>Add location (pin on map)</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -1186,7 +1188,7 @@ const CreatePostScreen: React.FC = () => {
                         <Text style={styles.locationPreviewConfirmBtnText}>Use this location</Text>
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.locationBackBtn} onPress={handleBackFromPreview}>
-                        <Ionicons name="arrow-back" size={20} color="#0095F6" />
+                        <Ionicons name="arrow-back" size={20} color={palette.primary} />
                         <Text style={styles.locationBackBtnText}>Back to results</Text>
                       </TouchableOpacity>
                     </View>
@@ -1199,11 +1201,11 @@ const CreatePostScreen: React.FC = () => {
                         activeOpacity={0.8}
                       >
                         {locationLoading ? (
-                          <ActivityIndicator size="small" color="#0095F6" />
+                          <ActivityIndicator size="small" color={palette.primary} />
                         ) : (
                           <>
                             <View style={styles.locationOptionIconWrap}>
-                              <Ionicons name="navigate" size={28} color="#0095F6" />
+                              <Ionicons name="navigate" size={28} color={palette.primary} />
                             </View>
                             <View style={styles.locationOptionTextWrap}>
                               <Text style={styles.locationOptionTitle}>I'm here now</Text>
@@ -1220,7 +1222,7 @@ const CreatePostScreen: React.FC = () => {
                         activeOpacity={0.8}
                       >
                         <View style={styles.locationOptionIconWrap}>
-                          <Ionicons name="search" size={28} color="#0095F6" />
+                          <Ionicons name="search" size={28} color={palette.primary} />
                         </View>
                         <View style={styles.locationOptionTextWrap}>
                           <Text style={styles.locationOptionTitle}>Search for a place</Text>
@@ -1249,7 +1251,7 @@ const CreatePostScreen: React.FC = () => {
                           disabled={searchLoading}
                         >
                           {searchLoading ? (
-                            <ActivityIndicator size="small" color="#0095F6" />
+                            <ActivityIndicator size="small" color={palette.primary} />
                           ) : (
                             <Text style={styles.locationSearchBtnText}>Search</Text>
                           )}
@@ -1259,7 +1261,7 @@ const CreatePostScreen: React.FC = () => {
                         style={styles.locationBackBtn}
                         onPress={() => { setLocationMode('choose'); setSearchResults([]); }}
                       >
-                        <Ionicons name="arrow-back" size={20} color="#0095F6" />
+                        <Ionicons name="arrow-back" size={20} color={palette.primary} />
                         <Text style={styles.locationBackBtnText}>Back</Text>
                       </TouchableOpacity>
                       <ScrollView
@@ -1285,7 +1287,7 @@ const CreatePostScreen: React.FC = () => {
                               <Text style={styles.locationResultText} numberOfLines={2}>
                                 {r.name}
                               </Text>
-                              <Ionicons name="add-circle-outline" size={22} color="#0095F6" />
+                              <Ionicons name="add-circle-outline" size={22} color={palette.primary} />
                             </TouchableOpacity>
                           ))
                         )}
@@ -1301,7 +1303,7 @@ const CreatePostScreen: React.FC = () => {
                 <View style={styles.editModalContent}>
                   <Text style={styles.editModalTitle}>Edit photo</Text>
                   {editLoading ? (
-                    <ActivityIndicator size="small" color="#0095F6" style={{ marginVertical: 16 }} />
+                    <ActivityIndicator size="small" color={palette.primary} style={{ marginVertical: 16 }} />
                   ) : (
                     <>
                       <TouchableOpacity style={styles.editOption} onPress={handleRotate90}>
@@ -1348,7 +1350,7 @@ const CreatePostScreen: React.FC = () => {
                     disabled={cropApplying}
                   >
                     {cropApplying ? (
-                      <ActivityIndicator size="small" color="#0095F6" />
+                      <ActivityIndicator size="small" color={palette.primary} />
                     ) : (
                       <Text style={styles.cropHeaderDone}>Done</Text>
                     )}
@@ -1609,7 +1611,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
     marginBottom: 8,
     gap: 12,
   },
@@ -1762,7 +1765,6 @@ const styles = StyleSheet.create({
   },
   addPhotoCard: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e8e8e8',
@@ -1912,7 +1914,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    backgroundColor: '#F5F5F5',
     marginRight: 8,
     marginBottom: 8,
   },
@@ -1948,7 +1949,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#FF69B4',
-    backgroundColor: '#FFF5FC',
   },
   generateButtonText: {
     fontSize: 13,
@@ -1984,7 +1984,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F0F8FF',
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -2051,7 +2050,8 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#E8F4FD',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,

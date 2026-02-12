@@ -22,6 +22,7 @@ import { useToast } from '../context/ToastContext';
 import { User, Post, Reel } from '../types';
 import { searchService, SearchTag, userService, UpcomingTrailPost } from '../services/api';
 import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
+import { useTheme } from '../context/ThemeContext';
 
 type TabType = 'all' | 'accounts' | 'tags';
 
@@ -29,6 +30,7 @@ const CARD_WIDTH = 160;
 const CARD_MARGIN = 8;
 
 const SearchScreen: React.FC = () => {
+  const { palette } = useTheme();
   const { user: currentUser, updateUser, facebookAccessToken } = useAuth();
   const { showToast } = useToast();
   const navigation = useNavigation<any>();
@@ -224,7 +226,7 @@ const SearchScreen: React.FC = () => {
         </View>
         {!isCurrentUser && (
           <TouchableOpacity
-            style={[styles.followBtn, following && styles.followBtnFollowing]}
+            style={[styles.followBtn, following ? styles.followBtnFollowing : { backgroundColor: palette.primary }]}
             onPress={() => handleFollow(item._id)}
           >
             <Text style={[styles.followBtnText, following && styles.followBtnTextFollowing]}>
@@ -454,7 +456,7 @@ const SearchScreen: React.FC = () => {
                         <View style={styles.upcomingCardOverlay} />
                         <View style={styles.upcomingCardContent}>
                           {item.registerUrl ? (
-                            <View style={styles.upcomingCardRegisterBadge}>
+                            <View style={[styles.upcomingCardRegisterBadge, { backgroundColor: palette.primary }]}>
                               <Text style={styles.upcomingCardRegisterText}>Register</Text>
                             </View>
                           ) : null}

@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import StoryItem from './StoryItem';
 import { useAuth } from '../context/AuthContext';
 import { useStories, Story } from '../context/StoriesContext';
+import { useTheme } from '../context/ThemeContext';
 import { storyService } from '../services/api';
 import { useNavigation } from '@react-navigation/native';
 import ConfirmModal from './ConfirmModal';
@@ -27,14 +28,20 @@ import { chatService } from '../services/api';
 
 type StoriesNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
 
+interface StoriesSectionProps {
+  openRequest?: { userId: string; storyId?: string; requestId: number };
+  onConsumeOpenRequest?: (requestId: number) => void;
+}
+
 /**
  * StoriesSection Component
  * Horizontally scrollable row of story items
  * First item is always "Your Story" with gradient ring and plus badge
  * Tap opens full-screen story overlay
  */
-const StoriesSection: React.FC = () => {
+const StoriesSection: React.FC<StoriesSectionProps> = ({ openRequest, onConsumeOpenRequest }) => {
   const { user } = useAuth();
+  const { palette } = useTheme();
   const { stories: allStories, myStories, myStory, refreshStories, loading: storiesLoading } = useStories();
   const navigation = useNavigation<StoriesNav>();
   const [selectedStoryIndex, setSelectedStoryIndex] = useState<number | null>(null);
@@ -48,6 +55,7 @@ const StoriesSection: React.FC = () => {
   const [viewersVisible, setViewersVisible] = useState(false);
   const [viewersLoading, setViewersLoading] = useState(false);
   const [viewers, setViewers] = useState<{ id: string; username: string; avatar?: string }[]>([]);
+  const [storyImageDimensions, setStoryImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const replyMessageRef = useRef(replyMessage);
   replyMessageRef.current = replyMessage;
   const replyToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -205,14 +213,60 @@ const StoriesSection: React.FC = () => {
 
   const selectedStory = selectedStoryIndex !== null && selectedStoryIndex < activeStories.length ? activeStories[selectedStoryIndex] : null;
   const currentStoryId = selectedStory?.id ?? null;
+
+  // Fetch image dimensions for resizeMode: landscape uses contain, portrait uses cover
+  useEffect(() => {
+    const uri = selectedStory?.mediaUri;
+    if (!uri) {
+      setStoryImageDimensions(null);
+      return;
+    }
+    setStoryImageDimensions(null);
+    Image.getSize(
+      uri,
+      (width, height) => setStoryImageDimensions({ width, height }),
+      () => setStoryImageDimensions(null)
+    );
+  }, [selectedStory?.mediaUri]);
   const isLiked = currentStoryId ? storyLiked.has(currentStoryId) : false;
   const isOwnStory = selectedStory && user ? selectedStory.userId === user._id : false;
+
+  // Open a specific story when requested (e.g. from notification).
+  // This must be driven by props/state (not navigation params) so it works even if the header was unmounted.
+  useEffect(() => {
+    if (!openRequest || selectedStoryIndex !== null || storiesLoading || activeStories.length === 0) {
+      return;
+    }
+
+    const targetUserId = openRequest.userId;
+    const targetStoryId = openRequest.storyId;
+
+    // Find all stories by that user
+    const userStories = activeStories.filter((s) => s.userId === targetUserId);
+    if (userStories.length === 0) return;
+
+    let targetId: string | null = null;
+    if (targetStoryId) {
+      const match = userStories.find((s) => s.id === targetStoryId);
+      targetId = match ? match.id : userStories[0].id;
+    } else {
+      targetId = userStories[0].id;
+    }
+    const idx = activeStories.findIndex((s) => s.id === targetId);
+    if (idx !== -1) {
+      setSelectedStoryIndex(idx);
+      setSelectedStoryId(targetId);
+      // Clear the request so closing doesn't re-open
+      onConsumeOpenRequest?.(openRequest.requestId);
+    }
+  }, [openRequest?.requestId, selectedStoryIndex, storiesLoading, activeStories, onConsumeOpenRequest]);
 
   const handleStoryMenuOption = useCallback(async (action: string) => {
     setStoryMenuVisible(false);
     if (action === 'close') {
       setSelectedStoryIndex(null);
       setSelectedStoryId(null);
+      if (openRequest?.requestId) onConsumeOpenRequest?.(openRequest.requestId);
       return;
     }
     if (action === 'delete') {
@@ -246,7 +300,7 @@ const StoriesSection: React.FC = () => {
       showStoryToast('Link copied');
       return;
     }
-  }, [selectedStoryIndex, activeStories, user, showStoryToast]);
+  }, [selectedStoryIndex, activeStories, user, showStoryToast, openRequest?.requestId, onConsumeOpenRequest]);
 
   const handleConfirmDeleteStory = useCallback(async () => {
     const id = deleteConfirmStoryId;
@@ -628,12 +682,31 @@ const StoriesSection: React.FC = () => {
                 <View style={styles.storyHeaderRow}>
                   {(() => {
                     const headerAvatar = selectedStory.userId === user?._id ? (user?.avatar ?? selectedStory.avatar) : selectedStory.avatar;
-                    return headerAvatar ? (
-                      <Image source={{ uri: headerAvatar }} style={styles.storyHeaderAvatar} />
-                    ) : (
-                      <View style={[styles.storyHeaderAvatar, styles.overlayAvatarPlaceholder]}>
-                        <Ionicons name="person" size={Platform.OS === 'android' ? 16 : 18} color="#fff" />
-                      </View>
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setSelectedStoryIndex(null);
+                          setSelectedStoryId(null);
+                          if (selectedStory.userId === user?._id) {
+                            (navigation.getParent() as any)?.navigate('ProfileStack');
+                          } else {
+                            navigation.navigate('UserProfile', {
+                              userId: selectedStory.userId,
+                              username: selectedStory.username,
+                              avatar: headerAvatar || undefined,
+                            });
+                          }
+                        }}
+                      >
+                        {headerAvatar ? (
+                          <Image source={{ uri: headerAvatar }} style={styles.storyHeaderAvatar} />
+                        ) : (
+                          <View style={[styles.storyHeaderAvatar, styles.overlayAvatarPlaceholder]}>
+                            <Ionicons name="person" size={Platform.OS === 'android' ? 16 : 18} color="#fff" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
                     );
                   })()}
                   <View style={styles.storyHeaderText}>
@@ -682,7 +755,11 @@ const StoriesSection: React.FC = () => {
                       'https://images.unsplash.com/photo-1528701800489-20be3c30c1d5?w=800',
                   }}
                   style={styles.storyImage}
-                  resizeMode="cover"
+                  resizeMode={
+                    storyImageDimensions && storyImageDimensions.width > storyImageDimensions.height
+                      ? 'contain'
+                      : 'cover'
+                  }
                 />
                 {/* Bottom gradient overlay for text readability */}
                 <View style={styles.storyImageGradient} />
@@ -691,7 +768,7 @@ const StoriesSection: React.FC = () => {
                 {(selectedStory.caption || selectedStory.activityType) && (
                   <View style={styles.storyContentOverlay}>
                     {selectedStory.activityType && (
-                      <View style={styles.storyTag}>
+                      <View style={[styles.storyTag, { backgroundColor: palette.primary + 'E6' }]}>
                         <Ionicons
                           name="sparkles"
                           size={Platform.OS === 'android' ? 12 : 14}
@@ -856,9 +933,23 @@ const StoriesSection: React.FC = () => {
                   onPress={() => setViewersVisible(false)}
                 >
                   <View style={styles.storyMenuCard} onStartShouldSetResponder={() => true}>
-                    <Text style={[styles.storyMenuRowText, { textAlign: 'center', paddingVertical: 8 }]}>
-                      Story viewers
-                    </Text>
+                    <View style={{ paddingVertical: 8 }}>
+                      <Text style={[styles.storyMenuRowText, { textAlign: 'center' }]}>
+                        Story viewers
+                      </Text>
+                      <Text
+                        style={{
+                          textAlign: 'center',
+                          marginTop: 2,
+                          fontSize: 12,
+                          color: '#777',
+                        }}
+                      >
+                        {viewersLoading
+                          ? 'Loading…'
+                          : `${viewers.length} view${viewers.length === 1 ? '' : 's'}`}
+                      </Text>
+                    </View>
                     {viewersLoading ? (
                       <Text
                         style={{
@@ -892,13 +983,26 @@ const StoriesSection: React.FC = () => {
                         }}
                       >
                         {viewers.map((v) => (
-                          <View
+                          <TouchableOpacity
                             key={v.id}
                             style={{
                               flexDirection: 'row',
                               alignItems: 'center',
                               paddingVertical: 8,
                               paddingHorizontal: 12,
+                            }}
+                            activeOpacity={0.8}
+                            onPress={() => {
+                              setViewersVisible(false);
+                              setSelectedStoryIndex(null);
+                              setSelectedStoryId(null);
+                              if (v.id) {
+                                navigation.navigate('UserProfile', {
+                                  userId: v.id,
+                                  username: v.username,
+                                  avatar: v.avatar,
+                                });
+                              }
                             }}
                           >
                             {v.avatar ? (
@@ -924,7 +1028,7 @@ const StoriesSection: React.FC = () => {
                             <Text style={{ fontSize: 15, color: '#000', fontWeight: '500' }}>
                               {v.username}
                             </Text>
-                          </View>
+                          </TouchableOpacity>
                         ))}
                       </View>
                     )}
@@ -1149,7 +1253,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Platform.OS === 'android' ? 10 : 12,
     paddingVertical: Platform.OS === 'android' ? 5 : 6,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,105,180,0.9)',
     marginBottom: Platform.OS === 'android' ? 8 : 10,
   },
   storyTagText: {

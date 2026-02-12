@@ -41,8 +41,10 @@
         "expo-media-library",
         {
           "granularPermissions": [
-            "photo"
-          ]
+            "photo",
+            "video"
+          ],
+          "isAccessMediaLocationEnabled": false
         }
       ],
       "expo-video",

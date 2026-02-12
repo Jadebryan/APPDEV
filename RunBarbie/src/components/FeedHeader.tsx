@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { FeedStackParamList } from '../navigation/types';
 import { useNotifications } from '../context/NotificationsContext';
+import { useTheme } from '../context/ThemeContext';
 
 type FeedHeaderNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
 
@@ -15,6 +16,7 @@ type FeedHeaderNav = NativeStackNavigationProp<FeedStackParamList, 'FeedHome'>;
 const FeedHeader: React.FC = () => {
   const navigation = useNavigation<FeedHeaderNav>();
   const { unreadCount } = useNotifications();
+  const { palette } = useTheme();
 
   return (
     <View style={styles.container}>
@@ -31,21 +33,21 @@ const FeedHeader: React.FC = () => {
       <View style={styles.logoContainer}>
         <Text style={styles.logoText}>Run Barbie</Text>
         {Platform.OS === 'android' ? (
-          <Ionicons name="footsteps" size={20} color="#FF69B4" style={styles.logoIcon} />
+          <Ionicons name="footsteps" size={20} color={palette.primary} style={styles.logoIcon} />
         ) : (
           <Text style={[styles.logoText, styles.logoEmoji]}>🎀</Text>
         )}
       </View>
 
-      {/* Right Icon: Notifications (heart outline, pink) with smart unread badge */}
+      {/* Right Icon: Notifications (heart outline) with smart unread badge */}
       <TouchableOpacity
         style={styles.iconButton}
         onPress={() => navigation.navigate('Notifications')}
       >
         <View>
-          <Ionicons name="heart-outline" size={26} color="#FF69B4" />
+          <Ionicons name="heart-outline" size={26} color={palette.primary} />
           {unreadCount > 0 && (
-            <View style={styles.badge}>
+            <View style={[styles.badge, { backgroundColor: palette.primary }]}>
               <Text style={styles.badgeText}>
                 {unreadCount > 99 ? '99+' : unreadCount}
               </Text>
@@ -85,7 +87,6 @@ const styles = StyleSheet.create({
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#FF69B4',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,

@@ -16,10 +16,12 @@ import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/api';
 import { User } from '../types';
 import { DEFAULT_AVATAR_URI } from '../utils/defaultAvatar';
+import { useTheme } from '../context/ThemeContext';
 
 type FollowListParams = { mode: 'followers' | 'following'; userId: string; username?: string };
 
 const FollowListScreen: React.FC = () => {
+  const { palette } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<{ params: FollowListParams }>();
   const { mode, userId, username } = route.params;
@@ -122,7 +124,7 @@ const FollowListScreen: React.FC = () => {
         </View>
         {!isCurrentUser && (
           <TouchableOpacity
-            style={[styles.followBtn, following && styles.followBtnActive]}
+            style={[styles.followBtn, following ? styles.followBtnActive : { backgroundColor: palette.primary }]}
             onPress={() => handleFollow(item._id)}
           >
             <Text style={[styles.followBtnText, following && styles.followBtnTextActive]}>
@@ -145,7 +147,7 @@ const FollowListScreen: React.FC = () => {
       </View>
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#FF69B5" />
+          <ActivityIndicator size="large" color={palette.primary} />
         </View>
       ) : list.length === 0 ? (
         <View style={styles.center}>
@@ -161,7 +163,7 @@ const FollowListScreen: React.FC = () => {
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.list}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF69B5" />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />
           }
         />
       )}
@@ -240,7 +242,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0095F6',
   },
   followBtnActive: {
-    backgroundColor: '#efefef',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
   followBtnText: {
     fontSize: 14,
